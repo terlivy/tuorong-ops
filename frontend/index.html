@@ -3,29 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>运营业务管理系统</title>
+  <title>拓融运营管理系统</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <section class="login-page" id="loginPage">
-    <form class="login-card" id="loginForm">
-      <h1>运营业务管理系统</h1>
-      <p>统一管理资产、人员、项目、业务机会、执行、结算、供需、供应链和问题。</p>
-      <label>账号<input id="loginUser" autocomplete="username" required value="admin"></label>
-      <label>密码<input id="loginPass" type="password" autocomplete="current-password" required value="123456"></label>
-      <p class="error" id="loginError"></p>
-      <button class="btn primary" type="submit">登录</button>
-    </form>
+    <div class="login-shell">
+      <section class="login-hero">
+        <div class="login-brandline">
+          <img class="login-logo" src="./assets/tuorong-mark.svg" alt="贵州拓融科技有限责任公司">
+          <div>
+            <strong>贵州拓融科技有限责任公司</strong>
+            <span class="login-company-en">Guizhou Tuorong Technology Co., Ltd.</span>
+          </div>
+        </div>
+        <h1>拓融运营管理系统</h1>
+        <p>统一管理资产、人员、项目、业务机会、执行、结算、供需、供应链和问题。</p>
+        <div class="login-metrics">
+          <span>资产协同</span>
+          <span>业务闭环</span>
+          <span>实时运营</span>
+        </div>
+      </section>
+
+      <form class="login-card" id="loginForm">
+        <div>
+          <h2>账号登录</h2>
+          <p>欢迎回来，请登录进入工作台。</p>
+        </div>
+        <label>账号<input id="loginUser" autocomplete="username" required value="admin"></label>
+        <label>密码<input id="loginPass" type="password" autocomplete="current-password" required value="123456"></label>
+        <p class="error" id="loginError"></p>
+        <button class="btn primary" type="submit">登录</button>
+      </form>
+    </div>
   </section>
 
   <section class="app-shell" id="appShell" hidden>
     <header class="topbar">
       <div class="brand">
-        <img class="brand-logo" src="./assets/tuorong-logo-wide.png" alt="贵州拓融科技有限责任公司" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+        <img class="brand-logo" src="./assets/tuorong-mark.svg" alt="贵州拓融科技有限责任公司" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
         <div class="logo" hidden>TR</div>
         <div>
-          <h1>运营业务管理系统</h1>
-          <p class="subtle">资产 → 业务 → 执行 → 结算 → 供需/供应链</p>
+          <h1>拓融运营管理系统</h1>
+          <span class="brand-title-en">Tuorong Operations Management System</span>
         </div>
       </div>
       <button class="btn" id="logoutBtn" type="button">退出登录</button>
@@ -33,14 +54,6 @@
 
     <div class="workspace">
       <aside class="app-nav">
-        <div class="nav-brand">
-          <img class="nav-logo" src="./assets/tuorong-mark.png" alt="TR" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
-          <div class="nav-logo-fallback" hidden>TR</div>
-          <div>
-            <strong>拓融运营</strong>
-            <span>Operation Console</span>
-          </div>
-        </div>
         <nav id="appNav"></nav>
       </aside>
 

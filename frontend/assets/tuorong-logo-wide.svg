@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120" role="img" aria-labelledby="title desc">
+  <title id="title">贵州拓融科技有限责任公司</title>
+  <desc id="desc">拓融科技 TR 上升箭头品牌标识</desc>
+  <defs>
+    <linearGradient id="blue" x1="18" y1="105" x2="103" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06439f"/>
+      <stop offset=".5" stop-color="#0b86ee"/>
+      <stop offset="1" stop-color="#0450b8"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="33" y1="82" x2="113" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset=".55" stop-color="#ffad00"/>
+      <stop offset="1" stop-color="#ffd21a"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="8" width="104" height="104" rx="18" fill="#fff"/>
+  <path d="M20 43h56l-7 11H53v42l-17 7V54H12z" fill="url(#blue)"/>
+  <path d="M65 36h22c17 0 29 10 29 25 0 13-8 22-21 25l21 25H90L69 85h-6v26H45V72h42c6 0 10-4 10-9s-4-9-10-9H55z" fill="url(#blue)"/>
+  <path d="M31 83c22-6 52-28 73-55H90l27-11-7 29-7-12C79 63 50 84 32 90c-8 2-13 1-15-3-1-5 3-11 14-20-7 9-7 14 0 16z" fill="url(#orange)"/>
+  <text x="128" y="52" fill="#172033" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" font-size="30" font-weight="800">贵州拓融科技</text>
+  <text x="130" y="82" fill="#667085" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">TUORONG OPERATION SYSTEM</text>
+</svg>

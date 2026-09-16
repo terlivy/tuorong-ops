@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">拓融科技标识</title>
+  <desc id="desc">蓝色 TR 字母与橙色上升箭头</desc>
+  <defs>
+    <linearGradient id="blue" x1="22" y1="142" x2="132" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06439f"/>
+      <stop offset=".5" stop-color="#0b86ee"/>
+      <stop offset="1" stop-color="#0450b8"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="34" y1="112" x2="134" y2="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset=".55" stop-color="#ffad00"/>
+      <stop offset="1" stop-color="#ffd21a"/>
+    </linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="26" fill="#fff"/>
+  <path d="M22 57h78l-10 15H68v58l-23 9V72H12z" fill="url(#blue)"/>
+  <path d="M84 48h29c23 0 38 14 38 34 0 17-11 29-27 33l27 32h-34l-28-34h-8v34H58V95h56c8 0 13-5 13-12s-5-12-13-12H71z" fill="url(#blue)"/>
+  <path d="M36 108c29-8 69-37 96-72h-19l34-14-8 36-9-15C99 80 61 108 37 116c-10 3-17 2-19-3-2-6 3-14 18-26-9 12-10 19 0 21z" fill="url(#orange)"/>
+</svg>

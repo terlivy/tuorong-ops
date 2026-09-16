@@ -165,7 +165,7 @@ function renderAppNav() {
       const disabled = mod ? '' : ' disabled';
       return `<button class="nav-item${key === state.currentModule ? ' active' : ''}" data-module="${key}" type="button"${disabled}>${title}</button>`;
     }).join('');
-    return `<section class="nav-group"><h3>${group.title}</h3>${items}</section>`;
+    return `<section class="nav-group${group.items.includes(state.currentModule) ? ' active' : ''}"><h3>${group.title}</h3>${items}</section>`;
   }).join('');
 
   appNav.querySelectorAll('.nav-item:not(:disabled)').forEach(button => button.addEventListener('click', async () => {

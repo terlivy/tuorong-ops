@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node backend/src/server.js",
     "dev": "node backend/src/server.js",
-    "test": "node backend/core.test.js && node ops-core.test.js",
+    "test": "node backend/core.test.js && node ops-core.test.js && node frontend/ui.test.js",
     "check": "node --check backend/src/server.js && node --check backend/src/app.js && node --check backend/src/db.js && node --check backend/src/modules.js && node --check frontend/app.js"
   },
   "dependencies": {
