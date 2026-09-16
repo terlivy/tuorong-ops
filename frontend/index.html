@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运营业务管理系统</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <section class="login-page" id="loginPage">
+    <form class="login-card" id="loginForm">
+      <h1>运营业务管理系统</h1>
+      <p>统一管理资产、人员、项目、业务机会、执行、结算、供需、供应链和问题。</p>
+      <label>账号<input id="loginUser" autocomplete="username" required value="admin"></label>
+      <label>密码<input id="loginPass" type="password" autocomplete="current-password" required value="123456"></label>
+      <p class="error" id="loginError"></p>
+      <button class="btn primary" type="submit">登录</button>
+    </form>
+  </section>
+
+  <section class="app-shell" id="appShell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="./assets/tuorong-logo-wide.png" alt="贵州拓融科技有限责任公司" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+        <div class="logo" hidden>TR</div>
+        <div>
+          <h1>运营业务管理系统</h1>
+          <p class="subtle">资产 → 业务 → 执行 → 结算 → 供需/供应链</p>
+        </div>
+      </div>
+      <button class="btn" id="logoutBtn" type="button">退出登录</button>
+    </header>
+
+    <div class="workspace">
+      <aside class="app-nav">
+        <div class="nav-brand">
+          <img class="nav-logo" src="./assets/tuorong-mark.png" alt="TR" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+          <div class="nav-logo-fallback" hidden>TR</div>
+          <div>
+            <strong>拓融运营</strong>
+            <span>Operation Console</span>
+          </div>
+        </div>
+        <nav id="appNav"></nav>
+      </aside>
+
+      <aside class="module-sidebar">
+        <div class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="搜索当前模块"></div>
+        <div class="filters" id="filters"></div>
+        <div class="mini-list" id="miniList"></div>
+      </aside>
+
+      <main class="main">
+        <div class="toolbar">
+          <div>
+            <h2 id="moduleTitle"></h2>
+            <p class="subtle" id="moduleDesc"></p>
+          </div>
+          <div class="actions">
+            <button class="btn" id="importBtn" type="button">⇧ 导入 CSV</button>
+            <button class="btn" id="exportBtn" type="button">⇩ 导出 CSV</button>
+            <button class="btn primary" id="newBtn" type="button">＋ 新增</button>
+            <input id="importFile" type="file" accept=".csv,text/csv" hidden>
+          </div>
+        </div>
+
+        <section class="stats" id="stats"></section>
+        <section class="table-wrap">
+          <table id="dataTable"><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+          <div class="map-view" id="mapView" hidden></div>
+          <div class="empty" id="emptyState" hidden>没有匹配的记录</div>
+        </section>
+      </main>
+
+      <aside class="editor">
+        <div class="section-title">
+          <div>
+            <h3 id="formTitle"></h3>
+            <p class="subtle" id="formSubtitle"></p>
+          </div>
+        </div>
+        <form class="form" id="recordForm"></form>
+      </aside>
+    </div>
+  </section>
+
+  <script src="./app.js"></script>
+</body>
+</html>

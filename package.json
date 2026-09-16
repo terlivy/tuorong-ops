@@ -1,0 +1,20 @@
+{
+  "name": "ops-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "运营业务管理系统",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node backend/src/server.js",
+    "test": "node backend/core.test.js && node ops-core.test.js",
+    "check": "node --check backend/src/server.js && node --check backend/src/app.js && node --check backend/src/db.js && node --check backend/src/modules.js && node --check frontend/app.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

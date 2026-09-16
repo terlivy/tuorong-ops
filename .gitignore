@@ -1,0 +1,16 @@
+node_modules/
+
+.env
+.env.local
+
+data/
+backend/data/
+
+*.log
+server.log
+server.err.log
+
+deepseek_html_*.html
+
+.DS_Store
+Thumbs.db
