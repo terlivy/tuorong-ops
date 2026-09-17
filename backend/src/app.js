@@ -135,8 +135,12 @@ function createApp() {
   });
 
   const frontendDir = path.join(__dirname, '..', '..', 'frontend');
-  app.use(express.static(frontendDir));
+  app.get('/admin', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+  app.get('/admin/', (req, res) => res.redirect(301, '/admin'));
+  app.get('/h5', (req, res) => res.sendFile(path.join(frontendDir, 'atlas-h5.html')));
+  app.get('/h5/', (req, res) => res.redirect(301, '/h5'));
   app.get('/h5/atlas-report', (req, res) => res.sendFile(path.join(frontendDir, 'atlas-h5.html')));
+  app.use(express.static(frontendDir));
   app.get('*', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 
   function requireAuth(req, res, next) {

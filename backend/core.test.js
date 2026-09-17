@@ -256,6 +256,14 @@ async function runApiTests() {
     assert.equal(reportListResponse.status, 200);
     const reportListBody = await reportListResponse.json();
     assert.ok(reportListBody.reports.some(report => report.id === validReportBody.report.id && report.contactName === '张店长'));
+
+    const adminPageResponse = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
+    assert.equal(adminPageResponse.status, 200);
+    assert.match(await adminPageResponse.text(), /Tuorong Operations Management System|拓融运营管理系统/);
+
+    const h5PageResponse = await fetch(`${baseUrl}/h5`, { headers: { cookie } });
+    assert.equal(h5PageResponse.status, 200);
+    assert.match(await h5PageResponse.text(), /Atlas 场景报备/);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
