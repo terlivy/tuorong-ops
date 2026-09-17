@@ -89,6 +89,7 @@ assert.match(atlasCss, /\.step-button/);
 assert.match(atlasCss, /@media \(max-width: 480px\)/);
 assert.match(atlasJs, /\/api\/atlas\/categories/);
 assert.match(atlasJs, /\/api\/atlas\/reports/);
+assert.match(atlasJs, /loadReportStats\(\)\.catch/);
 assert.match(atlasJs, /navigator\.geolocation/);
 assert.match(atlasJs, /bindingTuplePreview/);
 assert.match(atlasJs, /scanDeviceBtn/);

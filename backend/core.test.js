@@ -159,6 +159,12 @@ async function runApiTests() {
   const server = app.listen(0);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   try {
+    const publicCategoriesResponse = await fetch(`${baseUrl}/api/atlas/categories`);
+    assert.equal(publicCategoriesResponse.status, 200);
+    const publicCategoriesBody = await publicCategoriesResponse.json();
+    assert.equal(publicCategoriesBody.categories.length, 6);
+    assert.equal(publicCategoriesBody.subcategoryCount, 46);
+
     const login = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

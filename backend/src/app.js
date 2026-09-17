@@ -115,7 +115,7 @@ function createApp() {
     res.json(buildGuizhouBusinessMap());
   });
 
-  app.get('/api/atlas/categories', requireAuth, (req, res) => {
+  app.get('/api/atlas/categories', (req, res) => {
     res.json({
       categories: ATLAS_CATEGORIES,
       subcategoryCount: flattenAtlasSubcategories().length,

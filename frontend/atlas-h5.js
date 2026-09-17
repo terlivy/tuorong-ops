@@ -45,7 +45,7 @@ async function api(path, options = {}) {
 
 async function boot() {
   await loadCategories();
-  await loadReportStats();
+  await loadReportStats().catch(() => {});
   fillSdCardCode();
   renderStep();
 }
