@@ -1,14 +1,21 @@
 const schemaTables = [
+  'users',
+  'roles',
+  'permissions',
+  'role_permissions',
+  'audit_logs',
   'assets',
   'people',
   'projects',
   'opportunities',
+  'atl_collection_scenarios',
   'execution_tasks',
   'equipment_records',
   'settlements',
   'supply_demand',
   'supply_chain_orders',
   'issues',
+  'atlas_scene_reports',
 ];
 
 const commonColumns = `
@@ -23,7 +30,51 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   display_name TEXT NOT NULL,
+  role_code TEXT NOT NULL DEFAULT 'admin',
+  status TEXT NOT NULL DEFAULT 'active',
+  notes TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS roles (
+  ${commonColumns},
+  roleCode TEXT NOT NULL UNIQUE,
+  roleName TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS permissions (
+  ${commonColumns},
+  permissionCode TEXT NOT NULL UNIQUE,
+  permissionName TEXT NOT NULL,
+  moduleKey TEXT NOT NULL,
+  action TEXT NOT NULL,
+  roleCodes TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role_code TEXT NOT NULL,
+  permission_code TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (role_code, permission_code)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actor_id TEXT,
+  actor_name TEXT,
+  module_key TEXT,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  detail TEXT,
+  ip TEXT,
+  user_agent TEXT
 );
 
 CREATE TABLE IF NOT EXISTS assets (
@@ -76,6 +127,19 @@ CREATE TABLE IF NOT EXISTS opportunities (
   expectedAmount REAL DEFAULT 0,
   dealAmount REAL DEFAULT 0,
   nextFollowDate TEXT,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS atl_collection_scenarios (
+  ${commonColumns},
+  sceneCategory TEXT NOT NULL,
+  sceneName TEXT NOT NULL,
+  assetName TEXT,
+  assetId TEXT,
+  collectionScope TEXT,
+  atlPlatform TEXT,
+  readiness TEXT,
+  status TEXT,
   notes TEXT
 );
 
@@ -157,6 +221,31 @@ CREATE TABLE IF NOT EXISTS issues (
   dueDate TEXT,
   description TEXT,
   result TEXT
+);
+
+CREATE TABLE IF NOT EXISTS atlas_scene_reports (
+  ${commonColumns},
+  submitter_id TEXT NOT NULL,
+  submitter_name TEXT NOT NULL,
+  category_key TEXT NOT NULL,
+  category_name TEXT NOT NULL,
+  subcategory_key TEXT NOT NULL,
+  subcategory_name TEXT NOT NULL,
+  subcategory_en TEXT NOT NULL,
+  scene_name TEXT NOT NULL,
+  address TEXT,
+  longitude REAL NOT NULL,
+  latitude REAL NOT NULL,
+  location_accuracy REAL DEFAULT 0,
+  contact_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  device_type TEXT NOT NULL,
+  device_barcode TEXT NOT NULL,
+  sd_card_code TEXT NOT NULL,
+  binding_tuple TEXT NOT NULL UNIQUE,
+  photos_json TEXT,
+  status TEXT NOT NULL DEFAULT 'pending_review',
+  notes TEXT
 );
 `;
 

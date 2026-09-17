@@ -4,6 +4,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { schemaSql } = require('./schema');
 const { modules } = require('./modules');
+const { atlasReportFromRow } = require('./atlas');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'ops-platform.db');
@@ -23,11 +24,19 @@ function createDb() {
   db.exec(schemaSql);
   migrate(db);
   seedAdmin(db);
+  seedSystemData(db);
   seedData(db);
   return db;
 }
 
 function migrate(db) {
+  ensureColumn(db, 'users', 'role_code', "TEXT NOT NULL DEFAULT 'admin'");
+  ensureColumn(db, 'users', 'status', "TEXT NOT NULL DEFAULT 'active'");
+  ensureColumn(db, 'users', 'notes', 'TEXT');
+  ensureColumn(db, 'users', 'updated_at', 'TEXT');
+  db.prepare("UPDATE users SET role_code = COALESCE(NULLIF(role_code, ''), 'admin')").run();
+  db.prepare("UPDATE users SET status = COALESCE(NULLIF(status, ''), 'active')").run();
+  db.prepare('UPDATE users SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)').run();
   ensureColumn(db, 'assets', 'assetStatus', 'TEXT');
   ensureColumn(db, 'assets', 'cooperationStage', 'TEXT');
   const hasStatus = tableColumns(db, 'assets').includes('status');
@@ -56,6 +65,48 @@ function seedAdmin(db) {
     .run(`u-${Date.now()}`, username, hashPassword(password), '系统管理员');
 }
 
+function seedSystemData(db) {
+  seedTable(db, 'roles', [
+    { id: 'role-admin', roleCode: 'admin', roleName: '管理员', status: 'active', description: '拥有系统全部权限' },
+  ]);
+  seedPermissions(db);
+  db.prepare("UPDATE users SET role_code = COALESCE(NULLIF(role_code, ''), 'admin'), status = COALESCE(NULLIF(status, ''), 'active')").run();
+}
+
+function seedPermissions(db) {
+  const actions = [
+    ['view', '查看'],
+    ['create', '新增'],
+    ['update', '编辑'],
+    ['delete', '删除'],
+    ['import', '导入'],
+    ['export', '导出'],
+  ];
+  const rows = [];
+  Object.entries(modules).forEach(([moduleKey, mod]) => {
+    actions.forEach(([action, actionName]) => {
+      if (mod.readOnly && !['view', 'export'].includes(action)) return;
+      rows.push({
+        id: `perm-${moduleKey}-${action}`,
+        permissionCode: `${moduleKey}:${action}`,
+        permissionName: `${mod.title}-${actionName}`,
+        moduleKey,
+        action,
+        roleCodes: 'admin',
+        status: 'active',
+        description: '系统默认权限',
+      });
+    });
+  });
+  seedTable(db, 'permissions', rows);
+  const count = db.prepare('SELECT COUNT(*) AS count FROM role_permissions').get().count;
+  if (count > 0) return;
+  rows.forEach(row => {
+    db.prepare('INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES (?, ?)')
+      .run('admin', row.permissionCode);
+  });
+}
+
 function seedData(db) {
   seedTable(db, 'assets', [
     { id: 'a-001', name: '星光门店', assetType: 'store', contactName: '周经理', phone: '13800008888', wechat: 'zg-13800008888', address: '中山路 88 号', longitude: 116.397428, latitude: 39.90923, businessTags: '数据采集,售电,供应链', assetStatus: 'key', cooperationStage: 'active', settlementStatus: 'unsettled', notes: '核心合作门店' },
@@ -72,6 +123,7 @@ function seedData(db) {
   seedTable(db, 'opportunities', [
     { id: 'o-001', businessName: '星光门店采集扩量', assetName: '星光门店', businessType: 'data_collection', owner: '张明', stage: 'negotiating', expectedAmount: 12000, dealAmount: 0, nextFollowDate: '2026-09-25', notes: '增加晚间采集场次' },
   ]);
+  seedAtlCollectionScenarios(db);
   seedTable(db, 'execution_tasks', [
     { id: 't-001', taskName: '星光门店上午采集', businessType: 'data_collection', assetName: '星光门店', projectName: '蚂蚁数据采集', executor: '赵敏', taskDate: '2026-09-15', reportedHours: 4.5, approvedHours: 4.5, status: 'done', result: '已提交日报' },
   ]);
@@ -93,6 +145,29 @@ function seedData(db) {
   ]);
 }
 
+function seedAtlCollectionScenarios(db) {
+  const groups = [
+    ['auto_repair', '汽车运输与维修', ['汽车美容', '汽车维修', '加油站', '摩托车美容', '自行车维修', '摩托车维修', '船舶维修', '车身贴膜店', '自行车美容', '洗车店', '钟表店', '修鞋店', '电子维修', '家电维修', '乐器维修', '手机维修', '电脑维修', '机电维修']],
+    ['construction', '建筑五金', ['五金店', '木工作坊', '建筑公司', '电工', '管道公司', '锁匠', '装修公司', '房屋粉刷', '电气安装', '总承包商']],
+    ['retail_consumer', '零售及消费品', ['香水店', '家电商店', '美妆用品店', '书店', '电子产品店', '花店', '家具店', '园艺中心', '油漆店', '礼品店', '渔具店', '玩具店', '文具店', '杂货店', '清洁用品店', '宠物店', '地毯店', '超市', '家居装饰店', '体育用品店', '农产品店', '饲料店', '鞋店', '便利店', '厨具店']],
+    ['food_service', '餐饮', ['餐厅', '糕点店', '面包房', '咖啡店', '冰淇淋店', '鱼市', '酒吧', '蛋糕店', '披萨店', '商用厨房', '街头小贩', '外卖', '私人厨师']],
+    ['food_processing', '食品加工', ['碾米厂', '干果厂', '坚果加工厂', '农场', '肉铺', '包装食品', '奶酪工厂', '鸡肉店', '食品、饮料与农产品加工']],
+  ];
+  const rows = groups.flatMap(([category, _label, scenes]) => scenes.map((sceneName, index) => ({
+    id: `atl-${category}-${index + 1}`,
+    sceneCategory: category,
+    sceneName,
+    assetName: '',
+    assetId: '',
+    collectionScope: 'full',
+    atlPlatform: 'ATL',
+    readiness: 'candidate',
+    status: 'candidate',
+    notes: '默认全量采集场景库，可绑定到具体门店/资产',
+  })));
+  seedTable(db, 'atl_collection_scenarios', rows);
+}
+
 function seedTable(db, table, rows) {
   const count = db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
   if (count > 0) return;
@@ -109,18 +184,20 @@ function insertRecord(db, table, record) {
 function listRecords(db, moduleKey) {
   const mod = modules[moduleKey];
   if (!mod) throw new Error('Unknown module');
-  return db.prepare(`SELECT * FROM ${mod.table} ORDER BY created_at DESC`).all();
+  return db.prepare(`SELECT * FROM ${mod.table} ORDER BY created_at DESC`).all().map(record => sanitizeRecord(mod, record));
 }
 
 function getRecord(db, moduleKey, id) {
   const mod = modules[moduleKey];
   if (!mod) throw new Error('Unknown module');
-  return db.prepare(`SELECT * FROM ${mod.table} WHERE id = ?`).get(id);
+  return sanitizeRecord(mod, db.prepare(`SELECT * FROM ${mod.table} WHERE id = ?`).get(id));
 }
 
 function saveRecord(db, moduleKey, record) {
   const mod = modules[moduleKey];
   if (!mod) throw new Error('Unknown module');
+  if (mod.readOnly) throw new Error('Read-only module');
+  if (moduleKey === 'users') return saveUserRecord(db, record);
   const existing = record.id ? getRecord(db, moduleKey, record.id) : null;
   const id = record.id || `${moduleKey}-${Date.now()}`;
   const payload = { ...record, id, updated_at: new Date().toISOString() };
@@ -135,10 +212,100 @@ function saveRecord(db, moduleKey, record) {
   return getRecord(db, moduleKey, id);
 }
 
+function saveUserRecord(db, record) {
+  const existing = record.id ? db.prepare('SELECT * FROM users WHERE id = ?').get(record.id) : null;
+  const id = record.id || `users-${Date.now()}`;
+  const passwordHash = record.password
+    ? hashPassword(record.password)
+    : existing?.password_hash || hashPassword(process.env.ADMIN_PASSWORD || '123456');
+  const payload = {
+    id,
+    username: record.username,
+    password_hash: passwordHash,
+    display_name: record.display_name || record.displayName || record.username,
+    role_code: record.role_code || 'admin',
+    status: record.status || 'active',
+    notes: record.notes || '',
+    updated_at: new Date().toISOString(),
+  };
+  if (existing) {
+    db.prepare('UPDATE users SET username = ?, password_hash = ?, display_name = ?, role_code = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?')
+      .run(payload.username, payload.password_hash, payload.display_name, payload.role_code, payload.status, payload.notes, payload.updated_at, id);
+  } else {
+    db.prepare('INSERT INTO users (id, username, password_hash, display_name, role_code, status, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(payload.id, payload.username, payload.password_hash, payload.display_name, payload.role_code, payload.status, payload.notes, payload.updated_at);
+  }
+  return getRecord(db, 'users', id);
+}
+
+function sanitizeRecord(mod, record) {
+  if (!record) return record;
+  const sanitized = { ...record };
+  (mod.protectedFields || []).forEach(key => delete sanitized[key]);
+  delete sanitized.password;
+  return sanitized;
+}
+
 function deleteRecord(db, moduleKey, id) {
   const mod = modules[moduleKey];
   if (!mod) throw new Error('Unknown module');
+  if (mod.readOnly) throw new Error('Read-only module');
   return db.prepare(`DELETE FROM ${mod.table} WHERE id = ?`).run(id);
+}
+
+function userHasPermission(db, user, moduleKey, action) {
+  if (!user || user.status === 'inactive') return false;
+  if (user.role_code === 'admin') return true;
+  const permission = db.prepare(`
+    SELECT p.permissionCode
+    FROM permissions p
+    LEFT JOIN role_permissions rp ON rp.permission_code = p.permissionCode
+    WHERE p.moduleKey = ?
+      AND p.action = ?
+      AND p.status = 'active'
+      AND (rp.role_code = ? OR instr(',' || COALESCE(p.roleCodes, '') || ',', ',' || ? || ',') > 0)
+    LIMIT 1
+  `).get(moduleKey, action, user.role_code, user.role_code);
+  return Boolean(permission);
+}
+
+function writeAuditLog(db, entry) {
+  const id = entry.id || `log-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  db.prepare(`
+    INSERT INTO audit_logs (id, actor_id, actor_name, module_key, action, target_id, detail, ip, user_agent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    entry.actorId || '',
+    entry.actorName || '',
+    entry.moduleKey || '',
+    entry.action,
+    entry.targetId || '',
+    entry.detail || '',
+    entry.ip || '',
+    entry.userAgent || '',
+  );
+  return getRecord(db, 'audit_logs', id);
+}
+
+function createAtlasSceneReport(db, report) {
+  const keys = Object.keys(report);
+  const placeholders = keys.map(() => '?').join(', ');
+  db.prepare(`INSERT INTO atlas_scene_reports (${keys.join(', ')}) VALUES (${placeholders})`)
+    .run(...keys.map(key => report[key]));
+  return getAtlasSceneReport(db, report.id);
+}
+
+function getAtlasSceneReport(db, id) {
+  const row = db.prepare('SELECT * FROM atlas_scene_reports WHERE id = ?').get(id);
+  return row ? atlasReportFromRow(row) : null;
+}
+
+function listAtlasSceneReports(db, submitterId) {
+  const rows = submitterId
+    ? db.prepare('SELECT * FROM atlas_scene_reports WHERE submitter_id = ? ORDER BY created_at DESC').all(submitterId)
+    : db.prepare('SELECT * FROM atlas_scene_reports ORDER BY created_at DESC').all();
+  return rows.map(atlasReportFromRow);
 }
 
 module.exports = {
@@ -149,4 +316,9 @@ module.exports = {
   getRecord,
   saveRecord,
   deleteRecord,
+  userHasPermission,
+  writeAuditLog,
+  createAtlasSceneReport,
+  getAtlasSceneReport,
+  listAtlasSceneReports,
 };

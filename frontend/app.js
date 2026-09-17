@@ -2,8 +2,11 @@ const $ = selector => document.querySelector(selector);
 
 const state = {
   modules: {},
+  dashboard: null,
+  dashboardError: '',
   config: {},
-  currentModule: '',
+  currentModule: 'dashboard',
+  expandedNavGroups: [],
   records: [],
   selectedId: '',
   filter: 'all',
@@ -14,16 +17,30 @@ const state = {
 
 const loginPage = $('#loginPage');
 const appShell = $('#appShell');
+const workspace = $('.workspace');
 const appNav = $('#appNav');
+const moduleSidebar = $('.module-sidebar');
+const toolbarSearch = $('.toolbar-search');
 const filters = $('#filters');
 const miniList = $('#miniList');
 const stats = $('#stats');
+const tableWrap = $('.table-wrap');
 const table = $('#dataTable');
 const tableHead = $('#tableHead');
 const tableBody = $('#tableBody');
 const mapView = $('#mapView');
 const recordForm = $('#recordForm');
+const editor = $('.editor');
 const importFile = $('#importFile');
+
+const DASHBOARD_MODULE = {
+  title: '贵州商业版图',
+  primaryField: 'title',
+  filters: [['all', '全部']],
+  fields: [],
+  permissions: { view: true },
+  dashboard: true,
+};
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -78,7 +95,7 @@ async function boot() {
     await api('/api/auth/me');
     await loadConfig();
     await loadModules();
-    showApp();
+    await showApp();
   } catch {
     showLogin();
   }
@@ -91,13 +108,28 @@ async function loadConfig() {
 async function loadModules() {
   const result = await api('/api/modules');
   state.modules = result.modules;
-  state.currentModule = state.currentModule || Object.keys(state.modules)[0];
+  state.currentModule = state.currentModule || 'dashboard';
 }
 
 async function loadRecords() {
+  if (state.currentModule === 'dashboard') {
+    await loadDashboard();
+    state.records = [];
+    return;
+  }
   const result = await api(`/api/modules/${state.currentModule}/records`);
   state.records = result.records;
   if (!state.selectedId && state.records[0]) state.selectedId = state.records[0].id;
+}
+
+async function loadDashboard() {
+  try {
+    state.dashboard = await api('/api/dashboard/guizhou-business-map');
+    state.dashboardError = '';
+  } catch (error) {
+    state.dashboard = null;
+    state.dashboardError = error.message || '驾驶舱数据加载失败';
+  }
 }
 
 function showLogin() {
@@ -113,7 +145,32 @@ async function showApp() {
 }
 
 function currentModule() {
+  if (state.currentModule === 'dashboard') return DASHBOARD_MODULE;
   return state.modules[state.currentModule];
+}
+
+function permissionsForCurrentModule() {
+  return currentModule()?.permissions || {};
+}
+
+function canCreate() {
+  return Boolean(permissionsForCurrentModule().create);
+}
+
+function canUpdate() {
+  return Boolean(permissionsForCurrentModule().update);
+}
+
+function canDelete() {
+  return Boolean(permissionsForCurrentModule().delete);
+}
+
+function canImport() {
+  return Boolean(permissionsForCurrentModule().import);
+}
+
+function canExport() {
+  return Boolean(permissionsForCurrentModule().export);
 }
 
 function filteredRecords() {
@@ -128,10 +185,22 @@ function filteredRecords() {
 
 function render() {
   const mod = currentModule();
-  $('#moduleTitle').textContent = mod.title;
-  $('#moduleDesc').textContent = `${mod.title}台账，支持增删改查、导入导出。`;
-  $('#searchInput').placeholder = `搜索${mod.title}`;
   renderAppNav();
+  if (state.currentModule === 'dashboard') {
+    renderDashboard();
+    return;
+  }
+  workspace.classList.remove('dashboard-mode');
+  workspace.classList.toggle('no-sidebar', !shouldShowModuleSidebar());
+  const dashboardRoot = $('#dashboardRoot');
+  if (dashboardRoot) dashboardRoot.hidden = true;
+  moduleSidebar.hidden = !shouldShowModuleSidebar();
+  toolbarSearch.hidden = false;
+  editor.hidden = false;
+  $('#moduleTitle').textContent = mod.title;
+  $('#moduleDesc').textContent = mod.readOnly ? `${mod.title}为只读审计台账。` : `${mod.title}台账，支持授权范围内的增删改查、导入导出。`;
+  $('#searchInput').placeholder = `搜索${mod.title}`;
+  renderToolbarPermissions();
   renderFilters();
   renderStats();
   renderList();
@@ -139,37 +208,155 @@ function render() {
   renderForm();
 }
 
+function renderToolbarPermissions() {
+  $('#newBtn').hidden = !canCreate();
+  $('#importBtn').hidden = !canImport();
+  $('#exportBtn').hidden = !canExport();
+}
+
+function renderDashboard() {
+  const data = state.dashboard || {};
+  const errorHtml = state.dashboardError
+    ? `<div class="dashboard-alert">贵州商业版图数据暂时无法加载：${escapeHtml(state.dashboardError)}。如果刚更新过系统，请重启后端服务。</div>`
+    : '';
+  workspace.classList.add('dashboard-mode');
+  workspace.classList.add('no-sidebar');
+  moduleSidebar.hidden = true;
+  toolbarSearch.hidden = true;
+  editor.hidden = true;
+  $('#moduleTitle').textContent = '贵州商业版图';
+  $('#moduleDesc').textContent = '用数采信任关系沉淀门店画像，识别供应链整合与机器人落地机会。';
+  $('#newBtn').hidden = true;
+  $('#importBtn').hidden = true;
+  $('#exportBtn').hidden = true;
+  stats.innerHTML = dashboardCards(data.cards || {});
+  table.hidden = true;
+  mapView.hidden = true;
+  $('#emptyState').hidden = true;
+  let dashboardRoot = $('#dashboardRoot');
+  if (!dashboardRoot) {
+    tableWrap.insertAdjacentHTML('beforeend', '<div id="dashboardRoot"></div>');
+    dashboardRoot = $('#dashboardRoot');
+  }
+  dashboardRoot.hidden = false;
+  dashboardRoot.innerHTML = `
+    ${errorHtml}
+    <section class="dashboard-grid">
+      <div class="guizhou-map-panel">
+        <div class="dashboard-section-title"><h3>贵州省商业热力</h3><span>门店资源分布</span></div>
+        <div class="region-bars">${regionBars(data.regionMap || [])}</div>
+      </div>
+      <div class="dashboard-panel">
+        <div class="dashboard-section-title"><h3>破局漏斗</h3><span>数采到供应链再到机器人</span></div>
+        <div class="funnel-list">${funnelRows(data.conversionFunnel || [])}</div>
+      </div>
+      <div class="dashboard-panel opportunity-lane">
+        <div class="dashboard-section-title"><h3>供应链机会</h3><span>把老板赚补贴变成老板省成本</span></div>
+        ${opportunityList(data.supplyChainOpportunities || [], 'estimatedValue')}
+      </div>
+      <div class="dashboard-panel opportunity-lane">
+        <div class="dashboard-section-title"><h3>机器人试点</h3><span>具身智能代理与运维候选</span></div>
+        ${robotList(data.robotOpportunities || [])}
+      </div>
+      <div class="dashboard-panel action-panel">
+        <div class="dashboard-section-title"><h3>下一步动作</h3><span>优先推进清单</span></div>
+        ${actionList(data.priorityActions || [])}
+      </div>
+    </section>`;
+}
+
+function dashboardCards(cards) {
+  return [
+    ['资产池', cards.assetCount || 0],
+    ['高价值门店', cards.keyAssetCount || 0],
+    ['稳定关系', cards.activeRelationshipCount || 0],
+    ['数采触点', cards.dataCollectionTouchpointCount || 0],
+    ['供应链机会', cards.supplyChainOpportunityCount || 0],
+    ['机器人候选', cards.robotOpportunityCount || 0],
+  ].map(([label, value]) => `<div class="stat"><span>${label}</span><b>${value}</b></div>`).join('');
+}
+
+function regionBars(regions) {
+  const max = Math.max(1, ...regions.map(region => region.count || 0));
+  return regions.map(region => {
+    const width = Math.max(8, Math.round(((region.count || 0) / max) * 100));
+    return `<div class="region-row"><span>${escapeHtml(region.name)}</span><div><i style="width:${width}%"></i></div><b>${region.count || 0}</b></div>`;
+  }).join('');
+}
+
+function funnelRows(rows) {
+  const max = Math.max(1, ...rows.map(row => row.count || 0));
+  return rows.map(row => {
+    const width = Math.max(10, Math.round(((row.count || 0) / max) * 100));
+    return `<div class="funnel-row"><div><b>${escapeHtml(row.label)}</b><span>${escapeHtml(row.key)}</span></div><strong>${row.count || 0}</strong><i style="width:${width}%"></i></div>`;
+  }).join('');
+}
+
+function opportunityList(items, amountKey) {
+  if (!items.length) return '<p class="dashboard-empty">暂无待聚合需求</p>';
+  return `<div class="dashboard-list">${items.map(item => `<article><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.assetName || '')}</span><p>${escapeHtml(item.category || '')} · ${money(item[amountKey] || 0)}</p><em>${escapeHtml(item.action || '')}</em></article>`).join('')}</div>`;
+}
+
+function robotList(items) {
+  if (!items.length) return '<p class="dashboard-empty">暂无机器人候选门店</p>';
+  return `<div class="dashboard-list">${items.map(item => `<article><b>${escapeHtml(item.assetName)}</b><span>${escapeHtml(item.region)}</span><p>${escapeHtml(item.scene)}</p><em>${escapeHtml(item.reason)}</em></article>`).join('')}</div>`;
+}
+
+function actionList(items) {
+  if (!items.length) return '<p class="dashboard-empty">暂无优先动作</p>';
+  return `<ol class="action-list">${items.map(item => `<li><b>${escapeHtml(item.title)}</b><span>${escapeHtml(item.target || '')}</span><p>${escapeHtml(item.detail || '')}</p></li>`).join('')}</ol>`;
+}
+
 const MENU_GROUPS = [
-  { title: '首页', items: ['assets'] },
-  { title: '系统管理', items: ['users', 'roles', 'permissions', 'logs'] },
+  { title: '首页', items: ['dashboard', 'assets'] },
+  { title: '系统管理', items: ['users', 'roles', 'permissions', 'audit_logs'] },
   { title: '产品中心', items: ['projects'] },
   { title: '人员管理', items: ['people'] },
-  { title: '业务运营', items: ['opportunities', 'execution_tasks', 'equipment_records'] },
+  { title: '业务运营', items: ['opportunities', 'atl_collection_scenarios', 'execution_tasks', 'equipment_records'] },
   { title: '财务结算', items: ['settlements'] },
   { title: '供应链', items: ['supply_demand', 'supply_chain'] },
   { title: '问题管理', items: ['issues'] },
 ];
 
-const PLACEHOLDER_MENU = {
-  users: '用户管理',
-  roles: '角色管理',
-  permissions: '权限管理',
-  logs: '日志管理',
-};
+const DEFAULT_EXPANDED_GROUPS = [
+  MENU_GROUPS[0].title,
+  MENU_GROUPS[4].title,
+  MENU_GROUPS[6].title,
+];
+
+const SYSTEM_MODULES = ['users', 'roles', 'permissions', 'audit_logs'];
+
+function shouldShowModuleSidebar() {
+  return state.currentModule !== 'dashboard' && !SYSTEM_MODULES.includes(state.currentModule);
+}
 
 function renderAppNav() {
+  if (!state.expandedNavGroups.length) state.expandedNavGroups = [...DEFAULT_EXPANDED_GROUPS];
   appNav.innerHTML = MENU_GROUPS.map(group => {
-    const items = group.items.map(key => {
-      const mod = state.modules[key];
-      const title = mod ? mod.title : PLACEHOLDER_MENU[key];
-      const disabled = mod ? '' : ' disabled';
-      return `<button class="nav-item${key === state.currentModule ? ' active' : ''}" data-module="${key}" type="button"${disabled}>${title}</button>`;
+    const isExpanded = state.expandedNavGroups.includes(group.title) || group.items.includes(state.currentModule);
+    const visibleItems = isExpanded ? group.items.filter(key => key === 'dashboard' || state.modules[key]) : [];
+    const items = visibleItems.map(key => {
+      const mod = key === 'dashboard' ? DASHBOARD_MODULE : state.modules[key];
+      return `<button class="nav-item${key === state.currentModule ? ' active' : ''}" data-module="${key}" type="button">${mod.title}</button>`;
     }).join('');
-    return `<section class="nav-group${group.items.includes(state.currentModule) ? ' active' : ''}"><h3>${group.title}</h3>${items}</section>`;
+    return `<section class="nav-group${isExpanded ? ' active' : ''}"><button class="nav-group-toggle" type="button" data-group="${group.title}">${group.title}</button>${items}</section>`;
   }).join('');
+
+  appNav.querySelectorAll('.nav-group-toggle').forEach(button => button.addEventListener('click', () => {
+    if (state.expandedNavGroups.includes(button.dataset.group)) {
+      state.expandedNavGroups = state.expandedNavGroups.filter(group => group !== button.dataset.group);
+    } else {
+      state.expandedNavGroups = [...state.expandedNavGroups, button.dataset.group];
+    }
+    renderAppNav();
+  }));
 
   appNav.querySelectorAll('.nav-item:not(:disabled)').forEach(button => button.addEventListener('click', async () => {
     state.currentModule = button.dataset.module;
+    const group = MENU_GROUPS.find(item => item.items.includes(state.currentModule));
+    if (group && !state.expandedNavGroups.includes(group.title)) {
+      state.expandedNavGroups = [...state.expandedNavGroups, group.title];
+    }
     state.selectedId = '';
     state.filter = 'all';
     state.query = '';
@@ -405,9 +592,11 @@ function mapCard(record) {
 function renderForm() {
   const mod = currentModule();
   const selected = state.records.find(record => record.id === state.selectedId) || {};
+  const readOnly = mod.readOnly || (selected.id ? !canUpdate() : !canCreate());
+  const deleteDisabled = !selected.id || !canDelete();
   $('#formTitle').textContent = selected.id ? `编辑：${selected[mod.primaryField]}` : `新增${mod.title}`;
-  $('#formSubtitle').textContent = selected.id ? selected.id : '填写后保存到服务器数据库';
-  recordForm.innerHTML = `<input type="hidden" name="id" value="${escapeHtml(selected.id || '')}">${renderFields(mod.fields, selected)}<div class="hint">数据会保存到服务器 SQLite 数据库。</div><div class="actions"><button class="btn primary" type="submit">保存记录</button><button class="btn" id="clearBtn" type="button">清空</button><button class="btn" id="deleteBtn" type="button" ${selected.id ? '' : 'disabled'}>删除</button></div>`;
+  $('#formSubtitle').textContent = selected.id ? selected.id : (readOnly ? '当前模块不可新增' : '填写后保存到服务器数据库');
+  recordForm.innerHTML = `<input type="hidden" name="id" value="${escapeHtml(selected.id || '')}">${renderFields(mod.fields, selected, readOnly)}<div class="hint">${mod.readOnly ? '日志模块为只读审计记录。' : '数据会保存到服务器 SQLite 数据库。'}</div><div class="actions"><button class="btn primary" type="submit" ${readOnly ? 'disabled' : ''}>保存记录</button><button class="btn" id="clearBtn" type="button" ${canCreate() ? '' : 'disabled'}>清空</button><button class="btn" id="deleteBtn" type="button" ${deleteDisabled ? 'disabled' : ''}>删除</button></div>`;
   $('#clearBtn').addEventListener('click', () => {
     state.selectedId = '';
     render();
@@ -415,11 +604,11 @@ function renderForm() {
   $('#deleteBtn').addEventListener('click', deleteSelected);
 }
 
-function renderFields(fields, selected) {
+function renderFields(fields, selected, disabled = false) {
   const parts = [];
   let pair = [];
   fields.forEach(field => {
-    const html = `<label>${field.label}${inputFor(field, selected[field.name])}</label>`;
+    const html = `<label>${field.label}${inputFor(field, selected[field.name], disabled)}</label>`;
     if (field.type === 'textarea') {
       if (pair.length) parts.push(`<div class="two">${pair.join('')}</div>`);
       pair = [];
@@ -436,14 +625,17 @@ function renderFields(fields, selected) {
   return parts.join('');
 }
 
-function inputFor(field, value = '') {
-  if (field.type === 'select') return `<select name="${field.name}">${field.options.map(([key, label]) => `<option value="${key}"${value === key ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
-  if (field.type === 'textarea') return `<textarea name="${field.name}">${escapeHtml(value)}</textarea>`;
-  return `<input name="${field.name}" type="${field.type || 'text'}" value="${escapeHtml(value)}">`;
+function inputFor(field, value = '', disabled = false) {
+  const disabledAttr = disabled ? ' disabled' : '';
+  if (field.type === 'select') return `<select name="${field.name}"${disabledAttr}>${field.options.map(([key, label]) => `<option value="${key}"${value === key ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  if (field.type === 'textarea') return `<textarea name="${field.name}"${disabledAttr}>${escapeHtml(value)}</textarea>`;
+  return `<input name="${field.name}" type="${field.type || 'text'}" value="${escapeHtml(value)}"${disabledAttr}>`;
 }
 
 recordForm.addEventListener('submit', async event => {
   event.preventDefault();
+  const selected = state.records.find(record => record.id === state.selectedId);
+  if (currentModule().readOnly || (selected ? !canUpdate() : !canCreate())) return;
   const payload = Object.fromEntries(new FormData(recordForm).entries());
   const mod = currentModule();
   mod.fields.forEach(field => {
@@ -457,7 +649,7 @@ recordForm.addEventListener('submit', async event => {
 });
 
 async function deleteSelected() {
-  if (!state.selectedId) return;
+  if (!state.selectedId || !canDelete()) return;
   await api(`/api/modules/${state.currentModule}/records/${state.selectedId}`, { method: 'DELETE' });
   state.selectedId = '';
   await loadRecords();
@@ -487,14 +679,19 @@ $('#searchInput').addEventListener('input', event => {
   render();
 });
 $('#newBtn').addEventListener('click', () => {
+  if (!canCreate()) return;
   state.selectedId = '';
   render();
 });
 $('#exportBtn').addEventListener('click', () => {
+  if (!canExport()) return;
   window.location.href = `/api/modules/${state.currentModule}/export`;
 });
-$('#importBtn').addEventListener('click', () => importFile.click());
+$('#importBtn').addEventListener('click', () => {
+  if (canImport()) importFile.click();
+});
 importFile.addEventListener('change', async event => {
+  if (!canImport()) return;
   const file = event.target.files[0];
   if (!file) return;
   const text = await file.text();

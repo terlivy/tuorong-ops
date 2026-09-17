@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Atlas 场景报备</title>
+  <link rel="stylesheet" href="/atlas-h5.css">
+</head>
+<body>
+  <main class="h5-shell">
+    <header class="h5-header">
+      <div>
+        <span class="eyebrow">Atlas Collection</span>
+        <h1>Atlas 场景报备</h1>
+      </div>
+      <a class="home-link" href="/">后台</a>
+    </header>
+
+    <section class="summary-strip" id="summaryStrip">
+      <div><span>今日报备</span><b id="todayCount">0</b></div>
+      <div><span>待审核</span><b id="pendingCount">0</b></div>
+      <div><span>完整率</span><b>95%</b></div>
+    </section>
+
+    <nav class="stepper" aria-label="报备步骤">
+      <button class="step-button active" type="button" data-step="0"><span>1</span>类目</button>
+      <button class="step-button" type="button" data-step="1"><span>2</span>场景</button>
+      <button class="step-button" type="button" data-step="2"><span>3</span>商家</button>
+      <button class="step-button" type="button" data-step="3"><span>4</span>设备</button>
+    </nav>
+
+    <form class="report-card" id="atlasReportForm">
+      <section class="form-step active" data-panel="0">
+        <div class="section-title">
+          <h2>类目选择</h2>
+          <span id="categoryMeta">6 大类 / 46 子类目</span>
+        </div>
+        <label>一级类目
+          <select name="categoryKey" id="categorySelect" required></select>
+        </label>
+        <label>子类目
+          <select name="subcategoryKey" id="subcategorySelect" required></select>
+        </label>
+        <div class="english-name" id="subcategoryEn">-</div>
+      </section>
+
+      <section class="form-step" data-panel="1">
+        <div class="section-title">
+          <h2>场景信息</h2>
+          <span>定位和门头照必填</span>
+        </div>
+        <label>场景中文名
+          <input name="sceneName" maxlength="30" required placeholder="例如：优选便利店">
+        </label>
+        <label>详细地址
+          <textarea name="address" rows="3" placeholder="省市区 + 门牌号"></textarea>
+        </label>
+        <div class="field-grid">
+          <label>经度
+            <input name="longitude" id="longitudeInput" inputmode="decimal" required>
+          </label>
+          <label>纬度
+            <input name="latitude" id="latitudeInput" inputmode="decimal" required>
+          </label>
+        </div>
+        <input name="locationAccuracy" id="locationAccuracyInput" type="hidden">
+        <button class="ghost-button" id="locateBtn" type="button">获取当前位置</button>
+        <label>门头 / 店内 / 作业区照片
+          <input name="photos" id="photoInput" type="file" accept="image/*" multiple>
+        </label>
+        <div class="file-list" id="photoList"></div>
+      </section>
+
+      <section class="form-step" data-panel="2">
+        <div class="section-title">
+          <h2>商家信息</h2>
+          <span>联系人、电话强制校验</span>
+        </div>
+        <label>联系人
+          <input name="contactName" minlength="2" maxlength="20" required placeholder="张店长">
+        </label>
+        <label>联系电话
+          <input name="phone" inputmode="tel" maxlength="11" required placeholder="13800008888">
+        </label>
+        <label>备注
+          <textarea name="notes" rows="3" placeholder="现场进门方式、特殊作业说明"></textarea>
+        </label>
+      </section>
+
+      <section class="form-step" data-panel="3">
+        <div class="section-title">
+          <h2>设备绑定</h2>
+          <span>生成三元组后进入审核</span>
+        </div>
+        <label>设备类型
+          <select name="deviceType" id="deviceTypeSelect">
+            <option value="multicam">multicam</option>
+            <option value="multicam+wrist">multicam+wrist</option>
+          </select>
+        </label>
+        <label>设备编号
+          <input name="deviceBarcode" id="deviceBarcodeInput" required readonly placeholder="扫码填入">
+        </label>
+        <button class="ghost-button" id="scanDeviceBtn" type="button">扫码录入设备</button>
+        <label>SD 卡编号
+          <input name="sdCardCode" id="sdCardCodeInput" readonly>
+        </label>
+        <div class="tuple-box">
+          <span>绑定三元组</span>
+          <b id="bindingTuplePreview">-</b>
+        </div>
+      </section>
+
+      <p class="form-error" id="formError"></p>
+      <div class="form-actions">
+        <button class="secondary-button" id="prevBtn" type="button">上一步</button>
+        <button class="primary-button" id="nextBtn" type="button">下一步</button>
+        <button class="primary-button" id="submitBtn" type="submit" hidden>提交报备</button>
+      </div>
+    </form>
+
+    <section class="success-card" id="successCard" hidden>
+      <span>提交成功</span>
+      <h2 id="successTitle"></h2>
+      <p id="successTuple"></p>
+      <button class="primary-button" id="newReportBtn" type="button">继续报备</button>
+    </section>
+  </main>
+
+  <script src="/atlas-h5.js"></script>
+</body>
+</html>
