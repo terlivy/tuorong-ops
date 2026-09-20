@@ -5,8 +5,8 @@ const XLSX = require('xlsx');
 
 const H = {
   reportId: ['\u62a5\u5907\u7f16\u53f7'],
-  category: ['\u4e00\u7ea7\u5206\u7c7b'],
-  subcategory: ['\u7ec6\u5206\u4e1a\u6001'],
+  category: ['\u4e00\u7ea7\u5206\u7c7b/\u7ec6\u5206\u4e1a\u6001', '\u4e00\u7ea7\u5206\u7c7b'],
+  subcategory: ['\u4e00\u7ea7\u5206\u7c7b/\u7ec6\u5206\u4e1a\u6001', '\u7ec6\u5206\u4e1a\u6001'],
   sceneName: ['\u573a\u666f\u540d\u79f0'],
   summary: ['\u91c7\u96c6\u5185\u5bb9\u6982\u8ff0'],
   workstation: ['\u5de5\u4f4d\u6e05\u5355'],
@@ -26,6 +26,8 @@ function createAtlasWorkbench(config = {}) {
   const dataRoot = config.dataRoot || process.env.ATLAS_DATA_ROOT || path.join(process.cwd(), 'data', 'atlas');
   const outputDir = config.outputDir || process.env.ATLAS_OUTPUT_DIR || path.join(dataRoot, 'output');
   const imagesDir = config.imagesDir || process.env.ATLAS_IMAGES_DIR || path.join(dataRoot, 'images');
+  // 暴露 imagesDir 给顶层 lookupImageDir
+  lookupImageDir._root = imagesDir;
   const reportExcel = config.reportExcel || process.env.ATLAS_REPORT_EXCEL || '';
   const categoryExcel = config.categoryExcel || process.env.ATLAS_CATEGORY_EXCEL || '';
   const generatorScript = config.generatorScript || process.env.ATLAS_GENERATOR_SCRIPT || '';
@@ -250,12 +252,46 @@ function normalizeReportRow(header, row, index) {
   Object.entries(H).forEach(([field, aliases]) => {
     record[field] = valueFor(raw, aliases);
   });
+  // 处理合并列 "一级分类/细分业态" → 拆分为 category + subcategory
+  const mergedCategoryField = String(raw['\u4e00\u7ea7\u5206\u7c7b/\u7ec6\u5206\u4e1a\u6001'] || '').trim();
+  if (mergedCategoryField && mergedCategoryField.includes('/')) {
+    const parts = mergedCategoryField.split('/').map(p => p.trim());
+    if (parts.length >= 2) {
+      record.category = parts[0];
+      const subRaw = String(raw['\u7ec6\u5206\u4e1a\u6001'] || '').trim();
+      if (!subRaw) {
+        record.subcategory = parts.slice(1).join('/');
+      }
+    }
+  }
   record.reportId = String(record.reportId || `atlas-row-${index + 1}`).trim();
   record.sceneName = String(record.sceneName || '').trim();
   record.imageList = splitList(record.images);
+  record.imageDir = lookupImageDir(record.reportId);
   record.workstationCount = Number(record.workstationCount || 0);
   record.imageCount = Number(record.imageCount || record.imageList.length || 0);
   return record;
+}
+
+function lookupImageDir(reportId) {
+  if (!reportId) return '';
+  // 从 imagesDir（被 createAtlasWorkbench 闭包设置）查找
+  const root = lookupImageDir._root || '';
+  if (!root || !fs.existsSync(root)) return '';
+  try {
+    const entries = root && fs.existsSync(root) ? fs.readdirSync(root) : [];
+    // 匹配：完全相等 / reportId 前缀 / 目录名包含 reportId（如 BP-0001_BP-0003_xxx 包含 BP-0003）
+    const match = entries.find(name =>
+        name === reportId ||
+        name.startsWith(`${reportId}_`) ||
+        name.startsWith(`${reportId}-`) ||
+        name.includes(`_${reportId}_`) ||
+        name.includes(`-${reportId}-`)
+    );
+    return match ? `/static/atlas-images/${match}` : '';
+  } catch {
+    return '';
+  }
 }
 
 function valueFor(raw, aliases) {

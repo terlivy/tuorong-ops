@@ -532,6 +532,7 @@ function renderAtlasWorkbench() {
 function renderAtlasWorkbenchTabs() {
   return [
     ['scenes', '场景'],
+    ['review', '场景审核'],
     ['records', '工位明细'],
     ['categories', '业态字典'],
     ['output', '生成文件'],
@@ -539,10 +540,52 @@ function renderAtlasWorkbenchTabs() {
 }
 
 function renderAtlasWorkbenchBody(data) {
+  if (state.atlasWorkbenchTab === 'review') return renderAtlasReview(data);
   if (state.atlasWorkbenchTab === 'records') return renderAtlasRecords(data.records?.records || []);
   if (state.atlasWorkbenchTab === 'categories') return renderAtlasCategories(data.categories || {});
   if (state.atlasWorkbenchTab === 'output') return renderAtlasOutput(data.output || {});
   return renderAtlasScenes(data.scenes?.scenes || []);
+}
+
+function renderAtlasReview(data) {
+  const records = (data.records?.records || []).filter(r => (r.status || '').includes('审') || (r.status || '').toLowerCase().includes('pending'));
+  const byStatus = (data.summary?.byStatus || {});
+  const pendingCount = Object.entries(byStatus).filter(([k]) => k.includes('审') || k.toLowerCase().includes('pending')).reduce((s, [, v]) => s + v, 0);
+  if (records.length === 0) {
+    return `<div class="atlas-review"><h3>场景审核列表</h3><p class="dashboard-empty">当前无待审核场景（${pendingCount} 条待审记录）</p></div>`;
+  }
+  // 按场景聚合
+  const buckets = new Map();
+  records.forEach(r => {
+    if (!buckets.has(r.sceneName)) buckets.set(r.sceneName, r);
+  });
+  const scenes = Array.from(buckets.values()).map(r => {
+    const sceneImages = (data.scenes?.scenes || []).find(s => s.name === r.sceneName) || {};
+    return { ...sceneImages, ...r, _allRecords: records.filter(x => x.sceneName === r.sceneName) };
+  });
+  return `<div class="atlas-review">
+    <h3>场景审核列表（${pendingCount} 条待审 / 共 ${scenes.length} 个场景）</h3>
+    <div class="atlas-review-list">
+      ${scenes.map(scene => `<article class="atlas-review-card" data-scene="${escapeHtml(scene.name)}">
+        <header>
+          <h4>${escapeHtml(scene.name)}</h4>
+          <span class="atlas-status-badge">${escapeHtml(scene.status || '-')}</span>
+        </header>
+        <dl>
+          <dt>编号</dt><dd>${escapeHtml((scene._allRecords || []).map(r => r.reportId).filter(Boolean).join('、') || '-')}</dd>
+          <dt>业态</dt><dd>${escapeHtml(scene.category || '-')} / ${escapeHtml(scene.subcategory || '-')}</dd>
+          <dt>位置</dt><dd>${escapeHtml(scene.location || '-')}</dd>
+          <dt>采集人</dt><dd>${escapeHtml(scene.collector || scene.collectors?.join('、') || '-')}</dd>
+          <dt>报备日期</dt><dd>${escapeHtml(scene.reportDate || '-')}</dd>
+          <dt>图片</dt><dd>${scene.imageCount || 0} 张</dd>
+        </dl>
+        <p>${escapeHtml(scene.summary || '暂无概述')}</p>
+        <div class="atlas-review-actions">
+          <button class="btn" data-action="view-scene" data-scene="${escapeHtml(scene.name)}" type="button">查看详情</button>
+        </div>
+      </article>`).join('')}
+    </div>
+  </div>`;
 }
 
 function renderAtlasScenes(scenes) {
@@ -554,10 +597,21 @@ function renderAtlasScenes(scenes) {
 }
 
 function renderAtlasSceneDetail(scene) {
+  const imagesHtml = (scene.records || []).flatMap(record => {
+    const dir = record.imageDir || scene.imageDir || '';
+    const encodedDir = dir.split('/').map(encodeURIComponent).join('/');
+    return (record.imageList || []).map(file => {
+      const url = encodedDir + '/' + encodeURIComponent(file);
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer" class="atlas-thumb"><img src="${escapeHtml(url)}" alt="${escapeHtml(file)}" loading="lazy"></a>`;
+    });
+  }).join('');
   return `<h3>${escapeHtml(scene.name)}</h3>
     <p>${escapeHtml(scene.summary || '暂无采集概述')}</p>
-    <dl><dt>位置</dt><dd>${escapeHtml(scene.location || '-')}</dd><dt>采集人</dt><dd>${escapeHtml((scene.collectors || []).join('、') || '-')}</dd><dt>报备日期</dt><dd>${escapeHtml(scene.reportDate || '-')}</dd><dt>状态</dt><dd>${escapeHtml(scene.status || '-')}</dd></dl>
-    <table class="atlas-record-table"><thead><tr><th>编号</th><th>工位</th><th>工作内容</th><th>图片</th></tr></thead><tbody>${(scene.records || []).map(record => `<tr><td>${escapeHtml(record.reportId)}</td><td>${escapeHtml(record.workstation)}</td><td>${escapeHtml(record.workDetail)}</td><td>${escapeHtml((record.imageList || []).join('、'))}</td></tr>`).join('')}</tbody></table>`;
+    <dl class="atlas-meta-grid"><dt>编号</dt><dd>${escapeHtml((scene.records || []).map(r => r.reportId).filter(Boolean).join('、') || '-')}</dd><dt>业态</dt><dd>${escapeHtml(scene.category || '-')} / ${escapeHtml(scene.subcategory || '-')}</dd><dt>位置</dt><dd>${escapeHtml(scene.location || '-')}</dd><dt>采集人</dt><dd>${escapeHtml((scene.collectors || []).join('、') || '-')}</dd><dt>报备日期</dt><dd>${escapeHtml(scene.reportDate || '-')}</dd><dt>状态</dt><dd>${escapeHtml(scene.status || '-')}</dd></dl>
+    <h4>场景图片（${scene.imageCount || 0} 张）</h4>
+    <div class="atlas-thumb-grid">${imagesHtml || '<p class="dashboard-empty">暂无图片</p>'}</div>
+    <h4>工位记录</h4>
+    <table class="atlas-record-table"><thead><tr><th>编号</th><th>工位</th><th>工作内容</th></tr></thead><tbody>${(scene.records || []).map(record => `<tr><td>${escapeHtml(record.reportId)}</td><td>${escapeHtml(record.workstation || '-')}</td><td>${escapeHtml(record.workDetail || '-')}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function renderAtlasRecords(records) {

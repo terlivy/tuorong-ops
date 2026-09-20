@@ -1842,8 +1842,108 @@ td {
 }
 
 .atlas-detail-panel h3 {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   font-size: 18px;
+}
+.atlas-detail-panel h4 {
+  margin: 18px 0 10px;
+  font-size: 14px;
+  color: var(--muted, #6b7280);
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding-top: 14px;
+}
+.atlas-meta-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 10px 0;
+}
+.atlas-meta-grid dt {
+  font-weight: 600;
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+}
+.atlas-meta-grid dd {
+  margin: 0;
+  font-size: 13px;
+}
+.atlas-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.atlas-thumb {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg, #f3f4f6);
+  border: 1px solid var(--border, #e5e7eb);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.atlas-thumb:hover { transform: scale(1.03); }
+.atlas-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.atlas-review-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+.atlas-review-card {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface, #fff);
+}
+.atlas-review-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.atlas-review-card h4 {
+  margin: 0;
+  font-size: 16px;
+}
+.atlas-status-badge {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.atlas-review-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.atlas-review-card dt { color: var(--muted, #6b7280); }
+.atlas-review-card dd { margin: 0; }
+.atlas-review-card p {
+  font-size: 13px;
+  color: var(--muted, #4b5563);
+  margin: 8px 0;
+}
+.atlas-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.atlas-review-actions .btn { font-size: 13px; padding: 5px 12px; }
+.atlas-review {
+  background: var(--surface, #fff);
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .atlas-detail-panel dl {
