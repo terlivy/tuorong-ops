@@ -133,7 +133,9 @@ CREATE TABLE IF NOT EXISTS opportunities (
 CREATE TABLE IF NOT EXISTS atl_collection_scenarios (
   ${commonColumns},
   sceneCategory TEXT NOT NULL,
+  categoryName TEXT,
   sceneName TEXT NOT NULL,
+  englishName TEXT,
   assetName TEXT,
   assetId TEXT,
   collectionScope TEXT,

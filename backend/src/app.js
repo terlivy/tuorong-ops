@@ -6,6 +6,7 @@ const cors = require('cors');
 const { modules } = require('./modules');
 const { createDb, hashPassword, listRecords, getRecord, saveRecord, deleteRecord, userHasPermission, writeAuditLog, createAtlasSceneReport, listAtlasSceneReports } = require('./db');
 const { ATLAS_CATEGORIES, flattenAtlasSubcategories, validateAtlasReportPayload, normalizeAtlasReportPayload } = require('./atlas');
+const { createAtlasWorkbench } = require('./atlas-workbench');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 const TOKEN_COOKIE = 'ops_token';
@@ -13,6 +14,7 @@ const TOKEN_COOKIE = 'ops_token';
 function createApp() {
   const app = express();
   const db = createDb();
+  const atlasWorkbench = createAtlasWorkbench();
 
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: '5mb' }));
@@ -134,7 +136,57 @@ function createApp() {
     res.json({ report });
   });
 
+  app.get('/api/atlas/workbench/summary', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getSummary());
+  });
+
+  app.get('/api/atlas/workbench/records', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getRecords());
+  });
+
+  app.get('/api/atlas/workbench/scenes', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getScenes());
+  });
+
+  app.get('/api/atlas/workbench/scenes/:name', requireAuth, (req, res) => {
+    try {
+      res.json(atlasWorkbench.getScene(decodeURIComponent(req.params.name)));
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message || 'atlas_scene_failed' });
+    }
+  });
+
+  app.get('/api/atlas/workbench/units', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getUnits());
+  });
+
+  app.get('/api/atlas/workbench/categories', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getCategories());
+  });
+
+  app.get('/api/atlas/workbench/output', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.getOutput());
+  });
+
+  app.post('/api/atlas/workbench/generate', requireAuth, async (req, res) => {
+    res.json(await atlasWorkbench.generate(req.body || {}));
+  });
+
+  app.put('/api/atlas/workbench/edits/record/:id', requireAuth, (req, res) => {
+    res.json({ ok: true, fields: atlasWorkbench.setRecordEdit(decodeURIComponent(req.params.id), req.body || {}) });
+  });
+
+  app.put('/api/atlas/workbench/edits/scene/:name', requireAuth, (req, res) => {
+    res.json({ ok: true, fields: atlasWorkbench.setSceneEdit(decodeURIComponent(req.params.name), req.body || {}) });
+  });
+
+  app.delete('/api/atlas/workbench/edits', requireAuth, (req, res) => {
+    res.json(atlasWorkbench.clearEdits());
+  });
+
   const frontendDir = path.join(__dirname, '..', '..', 'frontend');
+  app.use('/static/atlas-output', express.static(atlasWorkbench.outputDir));
+  app.use('/static/atlas-images', express.static(atlasWorkbench.imagesDir));
   app.get('/admin', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
   app.get('/admin/', (req, res) => res.redirect(301, '/admin'));
   app.get('/h5', (req, res) => res.sendFile(path.join(frontendDir, 'atlas-h5.html')));

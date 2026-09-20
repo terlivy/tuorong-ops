@@ -6,6 +6,15 @@ const businessTypes = [
   ['other', '其他'],
 ];
 
+const atlSceneCategories = [
+  ['retail_consumer', '零售与消费品'],
+  ['food_beverage', '食品与饮料'],
+  ['auto_transport', '汽车与运输'],
+  ['maintenance_service', '维修服务'],
+  ['construction_hardware', '建筑与五金'],
+  ['food_processing', '食品加工'],
+];
+
 function field(name, label, type = 'text', options = {}) {
   return { name, label, type, ...options };
 }
@@ -129,10 +138,19 @@ const modules = {
     filters: [['all', '全部'], ['lead', '线索'], ['contacted', '已联系'], ['negotiating', '洽谈中'], ['won', '已成交'], ['lost', '已流失']],
     fields: [
       field('businessName', '业务名称', 'text', { required: true }),
-      field('assetName', '客户/门店'),
+      field('assetName', '客户/门店', 'text', { lookup: { module: 'assets', display: 'name' } }),
       field('businessType', '业务类型', 'select', { options: businessTypes }),
-      field('owner', '负责人'),
-      field('stage', '业务阶段', 'select', { options: [['lead', '线索'], ['contacted', '已联系'], ['negotiating', '洽谈中'], ['won', '已成交'], ['lost', '已流失']] }),
+      field('owner', '负责人', 'text', { lookup: { module: 'users', display: 'username' } }),
+      field('stage', '业务阶段', 'select', {
+        options: [['lead', '线索'], ['contacted', '已联系'], ['negotiating', '洽谈中'], ['won', '已成交'], ['lost', '已流失']],
+        workflow: {
+          lead: { next: ['contacted', 'lost'], followUpDays: 3 },
+          contacted: { next: ['negotiating', 'lost'], followUpDays: 7 },
+          negotiating: { next: ['won', 'lost'], followUpDays: 5 },
+          won: { next: [], followUpDays: null },
+          lost: { next: [], followUpDays: null },
+        },
+      }),
       field('expectedAmount', '预计金额', 'number'),
       field('dealAmount', '成交金额', 'number'),
       field('nextFollowDate', '下次跟进日期', 'date'),
@@ -145,28 +163,15 @@ const modules = {
     primaryField: 'sceneName',
     filters: [
       ['all', '全部'],
-      ['auto_repair', '汽车运输与维修'],
-      ['construction', '建筑五金'],
-      ['retail_consumer', '零售及消费品'],
-      ['food_service', '餐饮'],
-      ['food_processing', '食品加工'],
+      ...atlSceneCategories,
       ['active', '已绑定'],
       ['candidate', '待绑定'],
     ],
     fields: [
-      field('sceneCategory', '场景大类', 'select', { options: [
-        ['auto_repair', '汽车运输与维修'],
-        ['construction', '建筑五金'],
-        ['retail_consumer', '零售及消费品'],
-        ['food_service', '餐饮'],
-        ['food_processing', '食品加工'],
-      ] }),
-      field('sceneName', 'ATL采集场景', 'text', { required: true }),
-      field('assetName', '关联门店/资产'),
-      field('assetId', '资产ID'),
-      field('collectionScope', '采集范围', 'select', { options: [['full', '全量采集'], ['sample', '样本采集'], ['pilot', '试点采集']] }),
-      field('atlPlatform', '平台/甲方'),
-      field('readiness', '准备度', 'select', { options: [['candidate', '待绑定'], ['ready', '可启动'], ['collecting', '采集中'], ['paused', '暂停']] }),
+      field('sceneCategory', '类目编码', 'select', { options: atlSceneCategories }),
+      field('categoryName', '类目', 'text', { required: true }),
+      field('sceneName', '中文名', 'text', { required: true }),
+      field('englishName', '英文名', 'text', { required: true }),
       field('status', '状态', 'select', { options: [['candidate', '待绑定'], ['active', '已绑定'], ['inactive', '停用']] }),
       field('notes', '备注', 'textarea'),
     ],
@@ -179,9 +184,9 @@ const modules = {
     fields: [
       field('taskName', '任务名称', 'text', { required: true }),
       field('businessType', '业务类型', 'select', { options: businessTypes }),
-      field('assetName', '关联门店/客户'),
-      field('projectName', '关联项目'),
-      field('executor', '执行人'),
+      field('assetName', '关联门店/客户', 'text', { lookup: { module: 'assets', display: 'name' } }),
+      field('projectName', '关联项目', 'text', { lookup: { module: 'projects', display: 'projectName' } }),
+      field('executor', '执行人', 'text', { lookup: { module: 'users', display: 'username' } }),
       field('taskDate', '执行日期', 'date'),
       field('reportedHours', '日报工时', 'number'),
       field('approvedHours', '审批通过工时', 'number'),
@@ -199,7 +204,7 @@ const modules = {
       field('equipmentType', '设备类型', 'select', { options: [['power_bank', '充电宝'], ['memory_card', '内存卡'], ['camera_cable', '摄像头线'], ['waist_bag', '腰包'], ['other', '其他']] }),
       field('flowType', '出入库类型', 'select', { options: [['inbound', '入库'], ['outbound', '出库'], ['return', '归还'], ['damage', '报损'], ['spare', '备用']] }),
       field('quantity', '数量', 'number'),
-      field('assetName', '关联门店/任务'),
+      field('assetName', '关联门店/任务', 'text', { lookup: { module: 'assets', display: 'name' } }),
       field('handler', '经办人'),
       field('recordDate', '日期', 'date'),
       field('status', '状态', 'select', { options: [['normal', '正常'], ['pending', '待确认'], ['lost', '遗失'], ['damaged', '损坏']] }),
@@ -214,7 +219,7 @@ const modules = {
     fields: [
       field('settlementName', '结算名称', 'text', { required: true }),
       field('businessType', '业务类型', 'select', { options: businessTypes }),
-      field('relatedObject', '关联对象'),
+      field('relatedObject', '关联对象', 'text', { lookup: { module: 'settlements-source' } }),
       field('direction', '收付方向', 'select', { options: [['receivable', '上游应收'], ['payable', '下游应付']] }),
       field('amount', '金额', 'number'),
       field('cost', '成本', 'number'),
@@ -232,7 +237,7 @@ const modules = {
     fields: [
       field('demandTitle', '需求/供应标题', 'text', { required: true }),
       field('recordType', '类型', 'select', { options: [['demand', '需求'], ['supply', '供应']] }),
-      field('assetName', '关联门店/客户'),
+      field('assetName', '关联门店/客户', 'text', { lookup: { module: 'assets', display: 'name' } }),
       field('category', '品类/服务'),
       field('quantity', '数量'),
       field('budget', '预算/报价', 'number'),
@@ -248,7 +253,7 @@ const modules = {
     fields: [
       field('orderName', '订单名称', 'text', { required: true }),
       field('supplier', '供应商'),
-      field('assetName', '采购门店/客户'),
+      field('assetName', '采购门店/客户', 'text', { lookup: { module: 'assets', display: 'name' } }),
       field('productName', '商品/服务'),
       field('quantity', '数量', 'number'),
       field('unitPrice', '单价', 'number'),
@@ -266,7 +271,7 @@ const modules = {
     fields: [
       field('title', '问题标题', 'text', { required: true }),
       field('sourceModule', '来源模块'),
-      field('relatedObject', '关联对象'),
+      field('relatedObject', '关联对象', 'text', { lookup: { module: 'issues-source' } }),
       field('owner', '负责人'),
       field('priority', '优先级', 'select', { options: [['high', '高'], ['medium', '中'], ['low', '低']] }),
       field('status', '处理状态', 'select', { options: [['open', '未处理'], ['doing', '处理中'], ['resolved', '已解决']] }),

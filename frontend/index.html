@@ -4,99 +4,156 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>拓融运营管理系统</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=20260920-6">
 </head>
 <body>
-  <section class="login-page" id="loginPage">
-    <div class="login-shell">
-      <section class="login-hero">
-        <div class="login-brandline">
+  <section class="login-page yudao-login" id="loginPage">
+    <div class="login-shell yudao-login__wrap">
+      <section class="login-hero yudao-login__left">
+        <div class="login-brandline yudao-login__brand">
           <img class="login-logo" src="./assets/tuorong-mark.svg" alt="贵州拓融科技有限责任公司">
           <div>
             <strong>贵州拓融科技有限责任公司</strong>
             <span class="login-company-en">Guizhou Tuorong Technology Co., Ltd.</span>
           </div>
         </div>
-        <h1>拓融运营管理系统</h1>
-        <p>统一管理资产、人员、项目、业务机会、执行、结算、供需、供应链和问题。</p>
-        <div class="login-metrics">
+        <div class="yudao-login__intro">
+          <h1>拓融运营管理系统</h1>
+          <p>统一管理资产、人员、项目、业务机会、执行、结算、供需、供应链和问题。</p>
+        </div>
+        <div class="login-metrics yudao-login__tags">
           <span>资产协同</span>
           <span>业务闭环</span>
           <span>实时运营</span>
         </div>
+        <div class="login-visual yudao-login__illustration" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
       </section>
 
-      <form class="login-card" id="loginForm">
-        <div>
-          <h2>账号登录</h2>
-          <p>欢迎回来，请登录进入工作台。</p>
+      <section class="login-main yudao-login__right">
+        <div class="login-top-tools yudao-login__tools" aria-label="登录页工具">
+          <button class="icon-btn" type="button" aria-label="主题">◐</button>
+          <button class="icon-btn" type="button" aria-label="语言">中</button>
         </div>
-        <label>账号<input id="loginUser" autocomplete="username" required value="admin"></label>
-        <label>密码<input id="loginPass" type="password" autocomplete="current-password" required value="123456"></label>
-        <p class="error" id="loginError"></p>
-        <button class="btn primary" type="submit">登录</button>
-      </form>
+        <form class="login-card login-panel yudao-login__form" id="loginForm">
+          <div class="yudao-login__heading">
+            <h2>账号登录</h2>
+            <p>欢迎回来，请登录进入工作台。</p>
+          </div>
+          <label>账号<input id="loginUser" autocomplete="username" required value="admin" placeholder="请输入账号"></label>
+          <label>密码<input id="loginPass" type="password" autocomplete="current-password" required value="123456" placeholder="请输入密码"></label>
+          <div class="login-options">
+            <label class="checkbox-line"><input type="checkbox" checked> 记住我</label>
+            <a href="#" aria-label="忘记密码">忘记密码</a>
+          </div>
+          <p class="error" id="loginError"></p>
+          <button class="btn primary login-submit" id="loginSubmitBtn" type="submit">登录</button>
+          <div class="login-form-links">
+            <button class="btn" type="button">手机登录</button>
+            <button class="btn" type="button">二维码</button>
+            <button class="btn" type="button">注册</button>
+          </div>
+        </form>
+      </section>
     </div>
   </section>
 
   <section class="app-shell" id="appShell" hidden>
-    <header class="topbar">
-      <div class="brand">
-        <img class="brand-logo" src="./assets/tuorong-mark.svg" alt="贵州拓融科技有限责任公司" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
-        <div class="logo" hidden>TR</div>
-        <div>
-          <h1>拓融运营管理系统</h1>
-          <span class="brand-title-en">Tuorong Operations Management System</span>
+    <div class="account-watermark" id="accountWatermark" aria-hidden="true"></div>
+    <div class="yudao-layout">
+      <aside class="app-nav">
+        <div class="sidebar-logo">
+          <img class="brand-logo" src="./assets/tuorong-mark.svg" alt="贵州拓融科技有限责任公司" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+          <div class="logo" hidden>TR</div>
+          <div>
+            <strong>拓融管理系统</strong>
+            <span class="brand-title-en">Tuorong Operations Management System</span>
+          </div>
+        </div>
+        <nav id="appNav" class="el-menu yudao-side-menu"></nav>
+      </aside>
+
+      <div class="layout-body">
+        <header class="topbar layout-header">
+          <div class="brand">
+            <button class="icon-btn sidebar-collapse-btn" id="sidebarCollapseBtn" type="button" aria-label="收起侧边栏">☰</button>
+            <div class="breadcrumb">
+              <span>首页</span>
+              <span>/</span>
+              <strong id="breadcrumbTitle">工作台</strong>
+            </div>
+          </div>
+          <div class="header-tools">
+            <button class="icon-btn" type="button" aria-label="搜索">⌕</button>
+            <button class="icon-btn" type="button" aria-label="全屏">⛶</button>
+            <button class="icon-btn" type="button" aria-label="主题">◐</button>
+            <span class="header-user">admin</span>
+            <button class="btn" id="logoutBtn" type="button">退出登录</button>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <main class="main">
+            <div class="toolbar query-panel compact-query">
+              <div class="query-title">
+                <h2 id="moduleTitle"></h2>
+                <p class="subtle" id="moduleDesc"></p>
+              </div>
+              <div class="query-controls">
+                <div class="toolbar-search search"><span>⌕</span><input id="searchInput" type="search" placeholder="请输入关键字搜索"></div>
+                <div class="filters" id="filters"></div>
+                <div class="actions">
+                  <button class="btn" id="importBtn" type="button">⇧ 导入 CSV</button>
+                  <button class="btn" id="exportBtn" type="button">⇩ 导出 CSV</button>
+                  <button class="btn primary" id="newBtn" type="button">＋ 新增</button>
+                  <button class="btn danger batch-delete" id="batchDeleteBtn" type="button" hidden disabled>批量删除</button>
+                  <input id="importFile" type="file" accept=".csv,text/csv" hidden>
+                </div>
+              </div>
+            </div>
+
+            <section class="stats" id="stats"></section>
+            <section class="table-wrap content-card">
+              <table id="dataTable"><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+              <div class="map-view" id="mapView" hidden></div>
+              <div class="empty" id="emptyState" hidden>没有匹配的记录</div>
+            </section>
+            <div class="pagination-bar" id="paginationBar">
+              <span id="paginationSummary">共 0 条</span>
+              <label>每页
+                <select class="page-size-select" id="pageSizeSelect">
+                  <option value="10">10</option>
+                  <option value="20" selected>20</option>
+                  <option value="50">50</option>
+                </select>
+                条
+              </label>
+              <button class="btn" id="prevPageBtn" type="button">上一页</button>
+              <span id="pageIndicator">1 / 1</span>
+              <button class="btn" id="nextPageBtn" type="button">下一页</button>
+            </div>
+            <div class="mini-list" id="miniList" hidden></div>
+          </main>
+
+          <div class="editor-backdrop" id="editorBackdrop" hidden></div>
+          <aside class="editor drawer-panel modal-panel" hidden>
+            <div class="section-title">
+              <div>
+                <h3 id="formTitle"></h3>
+                <p class="subtle" id="formSubtitle"></p>
+              </div>
+              <button class="icon-btn" id="closeEditorBtn" type="button" aria-label="关闭">×</button>
+            </div>
+            <form class="form" id="recordForm"></form>
+          </aside>
         </div>
       </div>
-      <button class="btn" id="logoutBtn" type="button">退出登录</button>
-    </header>
-
-    <div class="workspace">
-      <aside class="app-nav">
-        <nav id="appNav"></nav>
-      </aside>
-
-      <aside class="module-sidebar">
-        <div class="filters" id="filters"></div>
-        <div class="mini-list" id="miniList"></div>
-      </aside>
-
-      <main class="main">
-        <div class="toolbar">
-          <div>
-            <h2 id="moduleTitle"></h2>
-            <p class="subtle" id="moduleDesc"></p>
-          </div>
-          <div class="toolbar-search search"><span>⌕</span><input id="searchInput" type="search" placeholder="搜索当前模块"></div>
-          <div class="actions">
-            <button class="btn" id="importBtn" type="button">⇧ 导入 CSV</button>
-            <button class="btn" id="exportBtn" type="button">⇩ 导出 CSV</button>
-            <button class="btn primary" id="newBtn" type="button">＋ 新增</button>
-            <input id="importFile" type="file" accept=".csv,text/csv" hidden>
-          </div>
-        </div>
-
-        <section class="stats" id="stats"></section>
-        <section class="table-wrap">
-          <table id="dataTable"><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
-          <div class="map-view" id="mapView" hidden></div>
-          <div class="empty" id="emptyState" hidden>没有匹配的记录</div>
-        </section>
-      </main>
-
-      <aside class="editor">
-        <div class="section-title">
-          <div>
-            <h3 id="formTitle"></h3>
-            <p class="subtle" id="formSubtitle"></p>
-          </div>
-        </div>
-        <form class="form" id="recordForm"></form>
-      </aside>
     </div>
   </section>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260920-6"></script>
 </body>
 </html>
