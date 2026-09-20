@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const XLSX = require('xlsx');
 const { modules, getModule } = require('./src/modules');
 const { schemaTables } = require('./src/schema');
 const { ATLAS_CATEGORIES, flattenAtlasSubcategories } = require('./src/atlas');
@@ -59,9 +60,13 @@ assert.ok(modules.users.fields.some(field => field.name === 'password'));
 assert.ok(modules.users.fields.some(field => field.name === 'role_code'));
 assert.ok(modules.permissions.fields.some(field => field.name === 'roleCodes'));
 assert.equal(modules.atl_collection_scenarios.title, '数据采集-ATL场景');
-assert.ok(modules.atl_collection_scenarios.fields.some(field => field.name === 'assetName'));
-assert.ok(modules.atl_collection_scenarios.fields.some(field => field.name === 'sceneCategory'));
+assert.equal(modules.atl_collection_scenarios.primaryField, 'sceneName');
+assert.ok(modules.atl_collection_scenarios.fields.some(field => field.name === 'categoryName'));
 assert.ok(modules.atl_collection_scenarios.fields.some(field => field.name === 'sceneName'));
+assert.ok(modules.atl_collection_scenarios.fields.some(field => field.name === 'englishName'));
+assert.ok(modules.atl_collection_scenarios.filters.some(([key, label]) => key === 'retail_consumer' && label === '零售与消费品'));
+assert.ok(modules.atl_collection_scenarios.filters.some(([key, label]) => key === 'food_beverage' && label === '食品与饮料'));
+assert.ok(modules.atl_collection_scenarios.filters.some(([key, label]) => key === 'maintenance_service' && label === '维修服务'));
 
 const equipmentTypeField = modules.equipment_records.fields.find(field => field.name === 'equipmentType');
 assert.ok(equipmentTypeField.options.some(([value]) => value === 'power_bank'));
@@ -72,6 +77,20 @@ assert.ok(equipmentTypeField.options.some(([value]) => value === 'other'));
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-admin-'));
 process.env.DB_PATH = path.join(tmpDir, 'ops-platform.db');
+const atlasDataDir = path.join(tmpDir, 'atlas-data');
+const atlasOutputDir = path.join(atlasDataDir, 'output');
+const atlasImagesDir = path.join(atlasDataDir, 'images');
+fs.mkdirSync(atlasOutputDir, { recursive: true });
+fs.mkdirSync(atlasImagesDir, { recursive: true });
+process.env.ATLAS_DATA_ROOT = atlasDataDir;
+process.env.ATLAS_OUTPUT_DIR = atlasOutputDir;
+process.env.ATLAS_IMAGES_DIR = atlasImagesDir;
+process.env.ATLAS_REPORT_EXCEL = path.join(atlasDataDir, 'atlas-report.xlsx');
+process.env.ATLAS_CATEGORY_EXCEL = path.join(atlasDataDir, 'atlas-categories.xlsx');
+writeAtlasFixtureWorkbook(process.env.ATLAS_REPORT_EXCEL);
+writeAtlasCategoryWorkbook(process.env.ATLAS_CATEGORY_EXCEL);
+fs.writeFileSync(path.join(atlasImagesDir, 'front.jpg'), 'fake image');
+fs.writeFileSync(path.join(atlasOutputDir, '星光门店后厨.docx'), 'fake docx');
 const {
   createDb,
   hashPassword,
@@ -80,28 +99,50 @@ const {
   userHasPermission,
   writeAuditLog,
 } = require('./src/db');
+const {
+  createAtlasWorkbench,
+} = require('./src/atlas-workbench');
 
 const db = createDb();
+const workbench = createAtlasWorkbench();
+const summary = workbench.getSummary();
+assert.equal(summary.cards.sceneCount, 2);
+assert.equal(summary.cards.recordCount, 3);
+assert.equal(summary.cards.imageCount, 3);
+assert.equal(summary.cards.collectorCount, 2);
+assert.equal(summary.cards.unitCount, 2);
+assert.equal(summary.source, 'atlas-report.xlsx');
+assert.equal(workbench.getScenes().scenes[0].records.length, 2);
+assert.equal(workbench.getScene('星光门店后厨').imageCount, 2);
+assert.equal(workbench.getRecords().records.length, 3);
+assert.equal(workbench.getUnits().units.some(unit => unit.unitName === '星光门店'), true);
+assert.equal(workbench.getCategories().totalCategories, 1);
+assert.equal(workbench.getCategories().totalBusinessTypes, 1);
+assert.equal(workbench.getOutput().files[0].name, '星光门店后厨.docx');
+workbench.setRecordEdit('BP-001', { workstation: '更新后的后厨工位' });
+assert.equal(workbench.getRecords().records.find(record => record.reportId === 'BP-001').workstation, '更新后的后厨工位');
+workbench.setSceneEdit('星光门店后厨', { location: '贵阳云岩区' });
+assert.equal(workbench.getScene('星光门店后厨').location, '贵阳云岩区');
+workbench.clearEdits();
+assert.equal(workbench.getRecords().records.find(record => record.reportId === 'BP-001').workstation, '切配台');
+
 const roles = listRecords(db, 'roles');
 assert.ok(roles.some(role => role.roleCode === 'admin' && role.status === 'active'));
 
 const atlScenes = listRecords(db, 'atl_collection_scenarios');
-assert.ok(atlScenes.length >= 50);
-assert.ok(atlScenes.some(scene => scene.sceneCategory === 'retail_consumer' && scene.sceneName === '便利店'));
-assert.ok(atlScenes.some(scene => scene.sceneCategory === 'food_processing' && scene.sceneName === '干果厂'));
+assert.equal(atlScenes.length, 46);
+assert.ok(atlScenes.some(scene => scene.sceneCategory === 'retail_consumer' && scene.categoryName === '零售与消费品' && scene.sceneName === '便利店' && scene.englishName === 'Convenience Store'));
+assert.ok(atlScenes.some(scene => scene.sceneCategory === 'food_processing' && scene.categoryName === '食品加工' && scene.sceneName === '食品饮料与农产品加工' && scene.englishName === 'Food, Beverage and Agricultural Processing'));
 const linkedScene = saveRecord(db, 'atl_collection_scenarios', {
   sceneCategory: 'retail_consumer',
+  categoryName: '零售与消费品',
   sceneName: '便利店',
-  assetName: '优选便利',
-  assetId: 'a-002',
-  collectionScope: '全量采集',
-  atlPlatform: 'ATL',
-  readiness: 'ready',
+  englishName: 'Convenience Store',
   status: 'active',
   notes: '绑定测试',
 });
-assert.equal(linkedScene.assetName, '优选便利');
-assert.equal(linkedScene.collectionScope, '全量采集');
+assert.equal(linkedScene.sceneName, '便利店');
+assert.equal(linkedScene.englishName, 'Convenience Store');
 
 const admin = db.prepare('SELECT * FROM users WHERE username = ?').get(process.env.ADMIN_USER || 'admin');
 assert.equal(admin.role_code, 'admin');
@@ -219,6 +260,37 @@ async function runApiTests() {
     assert.equal(categoriesBody.categories.length, 6);
     assert.equal(categoriesBody.subcategoryCount, 46);
 
+    const unauthWorkbenchResponse = await fetch(`${baseUrl}/api/atlas/workbench/summary`);
+    assert.equal(unauthWorkbenchResponse.status, 401);
+
+    const workbenchSummaryResponse = await fetch(`${baseUrl}/api/atlas/workbench/summary`, { headers: { cookie } });
+    assert.equal(workbenchSummaryResponse.status, 200);
+    const workbenchSummary = await workbenchSummaryResponse.json();
+    assert.equal(workbenchSummary.cards.sceneCount, 2);
+    assert.equal(workbenchSummary.cards.recordCount, 3);
+    assert.equal(workbenchSummary.cards.imageCount, 3);
+
+    const workbenchScenesResponse = await fetch(`${baseUrl}/api/atlas/workbench/scenes`, { headers: { cookie } });
+    assert.equal(workbenchScenesResponse.status, 200);
+    const workbenchScenes = await workbenchScenesResponse.json();
+    assert.equal(workbenchScenes.scenes.some(scene => scene.name === '星光门店后厨' && scene.recordCount === 2), true);
+
+    const workbenchSceneResponse = await fetch(`${baseUrl}/api/atlas/workbench/scenes/${encodeURIComponent('星光门店后厨')}`, { headers: { cookie } });
+    assert.equal(workbenchSceneResponse.status, 200);
+    const workbenchScene = await workbenchSceneResponse.json();
+    assert.equal(workbenchScene.name, '星光门店后厨');
+    assert.equal(workbenchScene.records.length, 2);
+
+    const workbenchGenerateResponse = await fetch(`${baseUrl}/api/atlas/workbench/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ scenes: ['星光门店后厨'] }),
+    });
+    assert.equal(workbenchGenerateResponse.status, 200);
+    const workbenchGenerate = await workbenchGenerateResponse.json();
+    assert.equal(workbenchGenerate.ok, false);
+    assert.equal(workbenchGenerate.reason, 'generator_not_configured');
+
     const invalidReportResponse = await fetch(`${baseUrl}/api/atlas/reports`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -281,3 +353,29 @@ runApiTests()
     console.error(error);
     process.exit(1);
   });
+
+function writeAtlasFixtureWorkbook(filePath) {
+  const rows = [
+    ['报备编号', '一级分类', '细分业态', '场景名称', '采集内容概述', '工位清单', '工作内容明细', '工位数量', '图片数量', '报备状态', '采集人', '报备日期', '审批意见', '备注', '工位图片', '采集位置'],
+    ['BP-001', '餐饮', '后厨', '星光门店后厨', '后厨动线采集', '切配台', '拍摄切配台', 1, 2, '已报备', '赵敏', '2026-09-19', '', '', 'front.jpg,side.jpg', '贵阳观山湖区星光路'],
+    ['BP-002', '餐饮', '后厨', '星光门店后厨', '后厨动线采集', '洗碗区', '拍摄洗碗区', 1, 0, '已报备', '赵敏', '2026-09-19', '', '', '', '贵阳观山湖区星光路'],
+    ['BP-003', '零售', '便利店', '优选便利店前厅', '前厅货架采集', '货架', '拍摄货架', 1, 1, '待审批', '钱磊', '2026-09-20', '', '', 'shelf.jpg', '贵阳云岩区优选路'],
+  ];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), '报备');
+  XLSX.writeFile(workbook, filePath);
+}
+
+function writeAtlasCategoryWorkbook(filePath) {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['序号', '一级分类', '细分业态'],
+    [1, '餐饮', '后厨、前厅'],
+  ]), '业态分类');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['说明'],
+    ['业态分类（细分）', '一级分类（中英文）', '采集内容'],
+    ['后厨', 'Food Service', '后厨动线'],
+  ]), '业务采集表');
+  XLSX.writeFile(workbook, filePath);
+}

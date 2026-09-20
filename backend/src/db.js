@@ -4,7 +4,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { schemaSql } = require('./schema');
 const { modules } = require('./modules');
-const { atlasReportFromRow } = require('./atlas');
+const { atlasReportFromRow, flattenAtlasSubcategories } = require('./atlas');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'ops-platform.db');
@@ -146,17 +146,13 @@ function seedData(db) {
 }
 
 function seedAtlCollectionScenarios(db) {
-  const groups = [
-    ['auto_repair', '汽车运输与维修', ['汽车美容', '汽车维修', '加油站', '摩托车美容', '自行车维修', '摩托车维修', '船舶维修', '车身贴膜店', '自行车美容', '洗车店', '钟表店', '修鞋店', '电子维修', '家电维修', '乐器维修', '手机维修', '电脑维修', '机电维修']],
-    ['construction', '建筑五金', ['五金店', '木工作坊', '建筑公司', '电工', '管道公司', '锁匠', '装修公司', '房屋粉刷', '电气安装', '总承包商']],
-    ['retail_consumer', '零售及消费品', ['香水店', '家电商店', '美妆用品店', '书店', '电子产品店', '花店', '家具店', '园艺中心', '油漆店', '礼品店', '渔具店', '玩具店', '文具店', '杂货店', '清洁用品店', '宠物店', '地毯店', '超市', '家居装饰店', '体育用品店', '农产品店', '饲料店', '鞋店', '便利店', '厨具店']],
-    ['food_service', '餐饮', ['餐厅', '糕点店', '面包房', '咖啡店', '冰淇淋店', '鱼市', '酒吧', '蛋糕店', '披萨店', '商用厨房', '街头小贩', '外卖', '私人厨师']],
-    ['food_processing', '食品加工', ['碾米厂', '干果厂', '坚果加工厂', '农场', '肉铺', '包装食品', '奶酪工厂', '鸡肉店', '食品、饮料与农产品加工']],
-  ];
-  const rows = groups.flatMap(([category, _label, scenes]) => scenes.map((sceneName, index) => ({
-    id: `atl-${category}-${index + 1}`,
-    sceneCategory: category,
-    sceneName,
+  const subcats = flattenAtlasSubcategories();
+  const rows = subcats.map((sub, index) => ({
+    id: `atl-${sub.categoryKey}-${index + 1}`,
+    sceneCategory: sub.categoryKey,
+    categoryName: sub.categoryName,
+    sceneName: sub.name,
+    englishName: sub.en,
     assetName: '',
     assetId: '',
     collectionScope: 'full',
@@ -164,7 +160,7 @@ function seedAtlCollectionScenarios(db) {
     readiness: 'candidate',
     status: 'candidate',
     notes: '默认全量采集场景库，可绑定到具体门店/资产',
-  })));
+  }));
   seedTable(db, 'atl_collection_scenarios', rows);
 }
 
