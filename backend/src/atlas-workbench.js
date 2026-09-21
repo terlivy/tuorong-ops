@@ -20,6 +20,7 @@ const H = {
   notes: ['\u5907\u6ce8'],
   images: ['\u5de5\u4f4d\u56fe\u7247'],
   location: ['\u91c7\u96c6\u4f4d\u7f6e'],
+  reviewHours: ['\u5ba1\u6838\u65f6\u957f(H)', '\u5ba1\u6838\u65f6\u957f'],
 };
 
 function createAtlasWorkbench(config = {}) {
@@ -127,6 +128,39 @@ function createAtlasWorkbench(config = {}) {
     };
   }
 
+
+  function lookupCategoryTemplate(categoryName, sceneName) {
+    const excelPath = resolveCategoryExcel();
+    if (!excelPath) return { workstation: '', workDetail: '' };
+    let workbook;
+    try { workbook = XLSX.readFile(excelPath, { cellDates: true }); } catch { return { workstation: '', workDetail: '' }; }
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const header = rows[0] || [];
+    const catIdx = header.findIndex(h => String(h || '').trim() === '一级分类');
+    const nameIdx = header.findIndex(h => String(h || '').trim() === '业态中文');
+    const wsIdx = header.findIndex(h => String(h || '').trim() === '工位');
+    const wdIdx = header.findIndex(h => String(h || '').trim() === '工作内容');
+    if (nameIdx < 0) return { workstation: '', workDetail: '' };
+    const catWanted = String(categoryName || '').trim();
+    const nameWanted = String(sceneName || '').trim();
+    let best = null;
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const rowCat = String(row[catIdx] || '').trim();
+      const rowName = String(row[nameIdx] || '').trim();
+      if (!rowName) continue;
+      if (rowName === nameWanted && (rowCat === catWanted || !catWanted)) {
+        best = { workstation: wsIdx >= 0 ? String(row[wsIdx] || '').trim() : '', workDetail: wdIdx >= 0 ? String(row[wdIdx] || '').trim() : '' };
+        break;
+      }
+      if (!best && rowName === nameWanted) {
+        best = { workstation: wsIdx >= 0 ? String(row[wsIdx] || '').trim() : '', workDetail: wdIdx >= 0 ? String(row[wdIdx] || '').trim() : '' };
+      }
+    }
+    return best || { workstation: '', workDetail: '' };
+  }
+
   function getOutput() {
     if (!fs.existsSync(outputDir)) return { outputDir, files: [] };
     const files = fs.readdirSync(outputDir)
@@ -190,6 +224,416 @@ function createAtlasWorkbench(config = {}) {
     return { ok: true };
   }
 
+  function reviewScene(sceneName, newStatus) {
+    if (!sceneName || !newStatus) return { ok: false, reason: 'sceneName_and_status_required' };
+    return reviewScenes([sceneName], newStatus);
+  }
+
+  function reviewScenes(sceneNames, newStatus) {
+    if (!Array.isArray(sceneNames) || !sceneNames.length) return { ok: false, reason: 'sceneName_and_status_required' };
+    if (!newStatus) return { ok: false, reason: 'status_required' };
+    const statusMap = { approved: '已审核', rejected: '已驳回', pending_review: '待审核' };
+    const targetStatus = statusMap[String(newStatus).toLowerCase()] || String(newStatus);
+    const excelPath = resolveReportExcel();
+    if (!excelPath) return { ok: false, reason: 'atlas_report_excel_missing' };
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}_${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}${String(ts.getSeconds()).padStart(2, '0')}`;
+    const backupFile = path.join(path.dirname(excelPath), `atlas_report.bak.${stamp}.xlsx`);
+    try {
+      fs.copyFileSync(excelPath, backupFile);
+    } catch (err) {
+      return { ok: false, reason: 'backup_failed', detail: String(err.message || err) };
+    }
+    const workbook = XLSX.readFile(excelPath, { cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const header = rows[0] || [];
+    const nameIdx = header.findIndex(h => String(h || '').trim() === '场景名称');
+    const statusIdx = header.findIndex(h => String(h || '').trim() === '报备状态');
+    const reportDateIdx = header.findIndex(h => String(h || '').trim() === '报备日期');
+    let reviewHoursIdx = header.findIndex(h => String(h || '').trim() === '审核时长(H)');
+    if (nameIdx < 0 || statusIdx < 0) return { ok: false, reason: 'header_missing' };
+    if (reviewHoursIdx < 0) {
+      header.push('审核时长(H)');
+      const addr = XLSX.utils.encode_cell({ r: 0, c: header.length - 1 });
+      sheet[addr] = '审核时长(H)';
+      reviewHoursIdx = header.length - 1;
+      const newRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+      newRange.e.c = Math.max(newRange.e.c, reviewHoursIdx);
+      sheet['!ref'] = XLSX.utils.encode_range(newRange);
+    }
+    const targets = new Set(sceneNames.filter(Boolean));
+    const now = new Date();
+    let changed = 0;
+    let hoursUpdated = 0;
+    for (let r = 1; r < rows.length; r++) {
+      const rowArr = rows[r] || [];
+      const cellName = String(rowArr[nameIdx] || '').trim();
+      if (!targets.has(cellName)) continue;
+      const statusAddr = XLSX.utils.encode_cell({ r, c: statusIdx });
+      sheet[statusAddr] = targetStatus;
+      changed += 1;
+      const reportDateVal = reportDateIdx >= 0 ? rowArr[reportDateIdx] : '';
+      let hours = '';
+      if (reportDateVal) {
+        try {
+          const dt = reportDateVal instanceof Date ? reportDateVal : new Date(reportDateVal);
+          if (!isNaN(dt.getTime())) {
+            const diffMs = now.getTime() - dt.getTime();
+            hours = (diffMs / 3600000).toFixed(1);
+            hoursUpdated += 1;
+          }
+        } catch {}
+      }
+      const hoursAddr = XLSX.utils.encode_cell({ r, c: reviewHoursIdx });
+      sheet[hoursAddr] = hours;
+    }
+    if (changed === 0) return { ok: false, reason: 'scene_not_found', failed: Array.from(targets) };
+    XLSX.writeFile(workbook, excelPath);
+    return { ok: true, newStatus: targetStatus, changed, hoursUpdated, backup: path.basename(backupFile) };
+  }
+
+  function editScene(sceneName, sceneFields, recordEdits) {
+    if (!sceneName) return { ok: false, reason: 'sceneName_required' };
+    const sceneTargets = sceneFields || {};
+    const recordTargets = recordEdits || {};
+    if (Object.keys(sceneTargets).length === 0 && Object.keys(recordTargets).length === 0) {
+      return { ok: false, reason: 'no_changes' };
+    }
+    const excelPath = resolveReportExcel();
+    if (!excelPath) return { ok: false, reason: 'atlas_report_excel_missing' };
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}_${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}${String(ts.getSeconds()).padStart(2, '0')}`;
+    const backupFile = path.join(path.dirname(excelPath), `atlas_report.bak.${stamp}.xlsx`);
+    try {
+      fs.copyFileSync(excelPath, backupFile);
+    } catch (err) {
+      return { ok: false, reason: 'backup_failed', detail: String(err.message || err) };
+    }
+    const workbook = XLSX.readFile(excelPath, { cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const header = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })[0] || [];
+    const colIdx = {};
+    header.forEach((h, i) => { colIdx[String(h || '').trim()] = i; });
+    const nameIdx = colIdx['\u573a\u666f\u540d\u79f0'];
+    const idIdx = colIdx['\u62a5\u5907\u7f16\u53f7'];
+    if (nameIdx === undefined) return { ok: false, reason: 'header_missing_name' };
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    let changed = 0;
+    let cellsModified = 0;
+    for (let r = 1; r < rows.length; r++) {
+      const rowName = String((rows[r] || [])[nameIdx] || '').trim();
+      const rowId = idIdx !== undefined ? String((rows[r] || [])[idIdx] || '').trim() : '';
+      const matchByScene = rowName === sceneName;
+      const matchByRecord = rowId && Object.prototype.hasOwnProperty.call(recordTargets, rowId);
+      if (!matchByScene && !matchByRecord) continue;
+      let rowChanged = false;
+      if (matchByScene) {
+        for (const [col, val] of Object.entries(sceneTargets)) {
+          if (val === '' || val === null || val === undefined) continue;
+          if (colIdx[col] === undefined) continue;
+          const addr = XLSX.utils.encode_cell({ r, c: colIdx[col] });
+          sheet[addr] = val;
+          cellsModified += 1;
+          rowChanged = true;
+        }
+      }
+      if (matchByRecord) {
+        const per = recordTargets[rowId] || {};
+        for (const [col, val] of Object.entries(per)) {
+          if (colIdx[col] === undefined) continue;
+          const addr = XLSX.utils.encode_cell({ r, c: colIdx[col] });
+          sheet[addr] = val;
+          cellsModified += 1;
+          rowChanged = true;
+        }
+      }
+      if (rowChanged) changed += 1;
+    }
+    if (changed === 0) return { ok: false, reason: 'no_rows_matched' };
+    XLSX.writeFile(workbook, excelPath);
+    return { ok: true, sceneName, changed, cellsModified, backup: path.basename(backupFile) };
+  }
+  async function exportReport() {
+    const excelPath = resolveReportExcel();
+    if (!excelPath) return { ok: false, reason: 'atlas_report_excel_missing' };
+    try {
+      const archiver = require('archiver');
+      const xlsxBuf = fs.readFileSync(excelPath);
+      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      const filename = `atlas_export_${stamp}.zip`;
+      const zip = archiver('zip', { zlib: { level: 9 } });
+      const chunks = [];
+      zip.on('data', c => chunks.push(c));
+      const buf = await new Promise((resolve, reject) => {
+        zip.on('end', () => resolve(Buffer.concat(chunks)));
+        zip.on('error', reject);
+        zip.append(xlsxBuf, { name: 'atlas_report.xlsx' });
+        if (fs.existsSync(imagesDir)) {
+          zip.directory(imagesDir, 'images');
+        }
+        zip.finalize();
+      });
+      return { ok: true, filename, buffer: buf };
+    } catch (err) {
+      return { ok: false, reason: 'export_failed', detail: String(err.message || err) };
+    }
+  }
+
+  function importReport(zipBuffer) {
+    if (!zipBuffer || !Buffer.isBuffer(zipBuffer)) return { ok: false, reason: 'file_required' };
+    let AdmZip;
+    try { AdmZip = require('adm-zip'); } catch (e) { return { ok: false, reason: 'adm-zip_missing' }; }
+    let zipObj;
+    try { zipObj = new AdmZip(zipBuffer); } catch (err) { return { ok: false, reason: 'invalid_zip', detail: String(err.message || err) }; }
+    const entries = zipObj.getEntries();
+    if (!entries.length) return { ok: false, reason: 'empty_zip' };
+    const xlsxEntries = entries.filter(e => !e.isDirectory && /\.xlsx?$/i.test(e.entryName));
+    if (!xlsxEntries.length) return { ok: false, reason: 'no_xlsx_in_zip' };
+    const xlsxEntry = xlsxEntries[0];
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}_${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}${String(ts.getSeconds()).padStart(2, '0')}`;
+    const excelPath = resolveReportExcel();
+    if (!excelPath) return { ok: false, reason: 'atlas_report_excel_missing' };
+    const backupFile = path.join(path.dirname(excelPath), `atlas_report.bak.${stamp}.xlsx`);
+    try {
+      fs.copyFileSync(excelPath, backupFile);
+    } catch (err) {
+      return { ok: false, reason: 'backup_failed', detail: String(err.message || err) };
+    }
+    let workbook;
+    try {
+      workbook = XLSX.read(xlsxEntry.getData(), { cellDates: true });
+    } catch (err) {
+      return { ok: false, reason: 'invalid_xlsx', detail: String(err.message || err) };
+    }
+    if (!workbook.SheetNames.length) return { ok: false, reason: 'no_sheet' };
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const header = allRows[0] || [];
+    const idColIdx = header.findIndex(h => String(h || '').trim() === '报备编号');
+    if (idColIdx < 0) return { ok: false, reason: 'header_missing_id_column' };
+    const existWorkbook = XLSX.readFile(excelPath, { cellDates: true });
+    const existSheet = existWorkbook.Sheets[existWorkbook.SheetNames[0]];
+    let existRows = XLSX.utils.sheet_to_json(existSheet, { header: 1, defval: '' });
+    const existHeader = existRows[0] || [];
+    if (!existHeader.length) existRows = [header.slice()];
+    while (existRows[0].length < header.length) existRows[0].push('');
+    const existIdIdx = existHeader.findIndex(h => String(h || '').trim() === '报备编号');
+    const existById = new Map();
+    for (let r = 1; r < existRows.length; r++) {
+      const id = String((existRows[r] || [])[existIdIdx] || '').trim();
+      if (id) existById.set(id, r);
+    }
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+    const newRows = [header.slice()];
+    for (let r = 1; r < allRows.length; r++) {
+      const row = allRows[r] || [];
+      const id = String(row[idColIdx] || '').trim();
+      if (!id) { skipped += 1; continue; }
+      const padded = row.slice();
+      while (padded.length < header.length) padded.push('');
+      if (existById.has(id)) {
+        const rowIdx = existById.get(id);
+        const existRow = existRows[rowIdx] || [];
+        for (let c = 0; c < padded.length; c++) {
+          const v = padded[c];
+          if (v !== '' && v !== null && v !== undefined) {
+            existRow[c] = v;
+            const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
+            existSheet[addr] = v;
+          }
+        }
+        existRows[rowIdx] = existRow;
+        updated += 1;
+      } else {
+        const targetRowIdx = existRows.length;
+        const existRow = padded.slice();
+        for (let c = 0; c < existRow.length; c++) {
+          const addr = XLSX.utils.encode_cell({ r: targetRowIdx, c });
+          existSheet[addr] = existRow[c];
+        }
+        existRows.push(existRow);
+        existById.set(id, targetRowIdx);
+        inserted += 1;
+      }
+    }
+    const maxCols = Math.max(existHeader.length, header.length);
+    const range = XLSX.utils.decode_range(existSheet['!ref'] || 'A1');
+    range.e.c = Math.max(range.e.c, maxCols - 1);
+    existSheet['!ref'] = XLSX.utils.encode_range(range);
+    XLSX.writeFile(existWorkbook, excelPath);
+    const backupDir = path.join(path.dirname(imagesDir), `images.bak.${stamp}`);
+    let imgBackup = '';
+    let imgExtracted = 0;
+    let imgSkipped = 0;
+    const imgFailed = [];
+    try {
+      if (fs.existsSync(imagesDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+        for (const name of fs.readdirSync(imagesDir)) {
+          const src = path.join(imagesDir, name);
+          const dst = path.join(backupDir, name);
+          try {
+            const stat = fs.lstatSync(src);
+            if (stat.isSymbolicLink() || stat.isFile()) fs.copyFileSync(src, dst);
+            else if (stat.isDirectory()) copyDirShallow(src, dst);
+          } catch (innerErr) {
+            console.warn(`[atlas] backup skip ${name}: ${innerErr.message}`);
+          }
+        }
+        imgBackup = path.basename(backupDir);
+      } else {
+        fs.mkdirSync(imagesDir, { recursive: true });
+      }
+    } catch (err) {
+      return { ok: false, reason: 'image_backup_failed', detail: String(err.message || err), inserted, updated, xlsxBackup: path.basename(backupFile) };
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      if (/\.xlsx?$/i.test(entry.entryName)) continue;
+      const rawName = entry.entryName;
+      const safeName = rawName.replace(/\\/g, '/');
+      if (safeName.includes('..') || path.isAbsolute(safeName)) { imgSkipped += 1; continue; }
+      const target = path.join(imagesDir, safeName);
+      try {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, entry.getData());
+        imgExtracted += 1;
+      } catch (innerErr) {
+        imgFailed.push({ name: rawName, err: String(innerErr.message || innerErr) });
+      }
+    }
+    return {
+      ok: true,
+      inserted,
+      updated,
+      skipped,
+      imagesExtracted: imgExtracted,
+      imagesSkipped: imgSkipped,
+      imagesFailed: imgFailed.length,
+      failedList: imgFailed.slice(0, 10),
+      xlsxBackup: path.basename(backupFile),
+      imageBackup: imgBackup,
+    };
+  }
+
+  function copyDirShallow(srcDir, dstDir) {
+    fs.mkdirSync(dstDir, { recursive: true });
+    for (const item of fs.readdirSync(srcDir)) {
+      const s = path.join(srcDir, item);
+      const d = path.join(dstDir, item);
+      try {
+        const stat = fs.lstatSync(s);
+        if (stat.isSymbolicLink() || stat.isFile()) fs.copyFileSync(s, d);
+        else if (stat.isDirectory()) copyDirShallow(s, d);
+      } catch (innerErr) {
+        console.warn(`[atlas] copy skip ${item}: ${innerErr.message}`);
+      }
+    }
+  }
+
+    function exportImages() {
+    if (!fs.existsSync(imagesDir)) return { ok: false, reason: 'images_dir_missing' };
+    try {
+      const archiver = require('archiver');
+      const zip = archiver('zip', { zlib: { level: 9 } });
+      const chunks = [];
+      zip.on('data', chunk => chunks.push(chunk));
+      const done = new Promise((resolve, reject) => {
+        zip.on('end', () => resolve(Buffer.concat(chunks)));
+        zip.on('error', reject);
+        zip.directory(imagesDir, 'images');
+        zip.finalize();
+      });
+      return done.then(buf => ({ ok: true, filename: 'atlas_images.zip', buffer: buf }));
+    } catch (err) {
+      return Promise.resolve({ ok: false, reason: 'zip_failed', detail: String(err.message || err) });
+    }
+  }
+
+  function importImages(zipBuffer) {
+    if (!zipBuffer || !Buffer.isBuffer(zipBuffer)) return { ok: false, reason: 'file_required' };
+    let AdmZip;
+    try { AdmZip = require('adm-zip'); } catch (e) { return { ok: false, reason: 'adm-zip_missing' }; }
+    let zipObj;
+    try { zipObj = new AdmZip(zipBuffer); } catch (err) { return { ok: false, reason: 'unzip_failed', detail: String(err.message || err) }; }
+    const entries = zipObj.getEntries();
+    if (!entries.length) return { ok: false, reason: 'empty_zip' };
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}_${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}${String(ts.getSeconds()).padStart(2, '0')}`;
+    const backupDir = path.join(path.dirname(imagesDir), `images.bak.${stamp}`);
+    try {
+      if (fs.existsSync(imagesDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+        const topLevel = fs.readdirSync(imagesDir);
+        for (const name of topLevel) {
+          const src = path.join(imagesDir, name);
+          const dst = path.join(backupDir, name);
+          try {
+            const stat = fs.lstatSync(src);
+            if (stat.isSymbolicLink() || stat.isFile()) {
+              fs.copyFileSync(src, dst);
+            } else if (stat.isDirectory()) {
+              copyDirShallow(src, dst);
+            }
+          } catch (innerErr) {
+            console.warn(`[atlas] backup skip ${name}: ${innerErr.message}`);
+          }
+        }
+      } else {
+        fs.mkdirSync(imagesDir, { recursive: true });
+      }
+    } catch (err) {
+      return { ok: false, reason: 'backup_failed', detail: String(err.message || err) };
+    }
+    let count = 0;
+    let skipped = 0;
+    const failed = [];
+    try {
+      for (const entry of entries) {
+        if (entry.isDirectory) continue;
+        const rawName = entry.entryName;
+        const safeName = rawName.replace(/\\/g, '/');
+        if (safeName.includes('..') || path.isAbsolute(safeName)) { skipped += 1; continue; }
+        const target = path.join(imagesDir, safeName);
+        try {
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          const data = entry.getData();
+          fs.writeFileSync(target, data);
+          count += 1;
+        } catch (innerErr) {
+          failed.push({ name: rawName, err: String(innerErr.message || innerErr) });
+        }
+      }
+    } catch (err) {
+      return { ok: false, reason: 'unzip_failed', detail: String(err.message || err), extracted: count, failed: failed.length };
+    }
+    return { ok: true, extracted: count, skipped, failed: failed.length, failedList: failed.slice(0, 10), backup: path.basename(backupDir) };
+  }
+
+  function copyDirShallow(srcDir, dstDir) {
+    fs.mkdirSync(dstDir, { recursive: true });
+    for (const item of fs.readdirSync(srcDir)) {
+      const s = path.join(srcDir, item);
+      const d = path.join(dstDir, item);
+      try {
+        const stat = fs.lstatSync(s);
+        if (stat.isSymbolicLink() || stat.isFile()) {
+          fs.copyFileSync(s, d);
+        } else if (stat.isDirectory()) {
+          copyDirShallow(s, d);
+        }
+      } catch (innerErr) {
+        console.warn(`[atlas] copy skip ${item}: ${innerErr.message}`);
+      }
+    }
+  }
+
   function resolveReportExcel() {
     if (reportExcel && fs.existsSync(reportExcel)) return reportExcel;
     return findLatestExcel(dataRoot, file => file.endsWith('.xlsx') && !file.startsWith('~$') && !file.toLowerCase().includes('category'));
@@ -236,11 +680,19 @@ function createAtlasWorkbench(config = {}) {
     getScene,
     getUnits,
     getCategories,
+    lookupCategoryTemplate,
     getOutput,
     generate,
     setRecordEdit,
     setSceneEdit,
     clearEdits,
+    reviewScene,
+    reviewScenes,
+    editScene,
+    exportReport,
+    importReport,
+    exportImages,
+    importImages,
     outputDir,
     imagesDir,
   };

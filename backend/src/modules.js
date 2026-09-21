@@ -172,6 +172,8 @@ const modules = {
       field('categoryName', '类目', 'text', { required: true }),
       field('sceneName', '中文名', 'text', { required: true }),
       field('englishName', '英文名', 'text', { required: true }),
+      field('workstation', '工位', 'textarea', { placeholder: '多个工位用 / 或 ， 分隔；可不填，自动从业态字典按类目+中文名补全' }),
+      field('workDetail', '工作内容', 'textarea', { placeholder: '可不填，自动从业态字典按类目+中文名补全' }),
       field('status', '状态', 'select', { options: [['candidate', '待绑定'], ['active', '已绑定'], ['inactive', '停用']] }),
       field('notes', '备注', 'textarea'),
     ],

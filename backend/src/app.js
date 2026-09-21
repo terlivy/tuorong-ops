@@ -124,6 +124,13 @@ function createApp() {
     });
   });
 
+  app.get('/api/atlas/category-template', requireAuth, (req, res) => {
+    const categoryName = String(req.query.category || '').trim();
+    const sceneName = String(req.query.name || '').trim();
+    const result = atlasWorkbench.lookupCategoryTemplate(categoryName, sceneName);
+    res.json({ ok: true, ...result, category: categoryName, name: sceneName });
+  });
+
   app.get('/api/atlas/reports', requireAuth, (req, res) => {
     res.json({ reports: listAtlasSceneReports(db, req.user.id) });
   });
@@ -170,6 +177,76 @@ function createApp() {
 
   app.post('/api/atlas/workbench/generate', requireAuth, async (req, res) => {
     res.json(await atlasWorkbench.generate(req.body || {}));
+  });
+
+  app.post('/api/atlas/workbench/review', requireAuth, async (req, res) => {
+    const { sceneNames, sceneName, status } = req.body || {};
+    const names = Array.isArray(sceneNames) && sceneNames.length ? sceneNames : (sceneName ? [sceneName] : []);
+    const result = atlasWorkbench.reviewScenes(names, status);
+    if (result.ok) {
+      writeAuditLog(db, auditEntry(req, req.user, 'atlas_workbench', 'review',
+        result.backup, `批量审核 ${result.changed} 条 → ${result.newStatus} (${names.length} 个场景)`));
+    }
+    res.json(result);
+  });
+
+  app.post('/api/atlas/workbench/edit', requireAuth, async (req, res) => {
+    const { sceneName, sceneFields, recordEdits } = req.body || {};
+    const result = atlasWorkbench.editScene(sceneName, sceneFields, recordEdits);
+    if (result.ok) {
+      writeAuditLog(db, auditEntry(req, req.user, 'atlas_workbench', 'edit', sceneName, `changed ${result.changed} rows (backup: ${result.backup})`));
+    }
+    res.json(result);
+  });
+
+  app.get('/api/atlas/workbench/export', requireAuth, async (req, res) => {
+    try {
+      const result = await atlasWorkbench.exportReport();
+      if (!result.ok) {
+        return res.status(404).json({ error: result.reason || 'export_failed', detail: result.detail || '' });
+      }
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(result.filename)}"`);
+      res.send(result.buffer);
+    } catch (err) {
+      res.status(500).json({ error: 'export_crash', detail: String(err.message || err) });
+    }
+  });
+
+  app.post('/api/atlas/workbench/import', requireAuth, (req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      const result = atlasWorkbench.importReport(buf);
+      if (result.ok) {
+        writeAuditLog(db, auditEntry(req, req.user, 'atlas_workbench', 'import', result.backup, `imported ${result.importedRows} rows`));
+      }
+      res.json(result);
+    });
+    req.on('error', () => res.status(500).json({ error: 'upload_failed' }));
+  });
+
+  app.get('/api/atlas/workbench/export-images', requireAuth, async (req, res) => {
+    const result = await atlasWorkbench.exportImages();
+    if (!result.ok) return res.status(500).json({ error: result.reason || 'export_failed' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(result.filename)}"`);
+    res.send(result.buffer);
+  });
+
+  app.post('/api/atlas/workbench/import-images', requireAuth, (req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      const result = atlasWorkbench.importImages(buf);
+      if (result.ok) {
+        writeAuditLog(db, auditEntry(req, req.user, 'atlas_workbench', 'import_images', result.backup, `extracted ${result.extracted} files`));
+      }
+      res.json(result);
+    });
+    req.on('error', () => res.status(500).json({ error: 'upload_failed' }));
   });
 
   app.put('/api/atlas/workbench/edits/record/:id', requireAuth, (req, res) => {

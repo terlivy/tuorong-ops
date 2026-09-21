@@ -10,6 +10,8 @@
     "check": "node --check backend/src/server.js && node --check backend/src/app.js && node --check backend/src/db.js && node --check backend/src/modules.js && node --check backend/src/atlas.js && node --check backend/src/atlas-workbench.js && node --check frontend/app.js && node --check frontend/atlas-h5.js"
   },
   "dependencies": {
+    "adm-zip": "^0.6.1",
+    "archiver": "^5.3.2",
     "better-sqlite3": "^11.10.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

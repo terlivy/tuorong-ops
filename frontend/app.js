@@ -74,11 +74,58 @@ const ATLAS_WORKBENCH_MODULE = {
   workbench: true,
 };
 
+function setupAtlAutoFill() {
+  const form = document.getElementById('recordForm');
+  if (!form) return;
+  const categorySel = form.querySelector('[name="categoryName"]');
+  const nameInput = form.querySelector('[name="sceneName"]');
+  const wsInput = form.querySelector('[name="workstation"]');
+  const wdInput = form.querySelector('[name="workDetail"]');
+  if (!wsInput || !wdInput) return;
+  // 自动补全标志：只有用户没手动改过工位/工作内容时才覆盖
+  let wsTouched = !!wsInput.value;
+  let wdTouched = !!wdInput.value;
+  wsInput.addEventListener('input', () => { wsTouched = true; });
+  wdInput.addEventListener('input', () => { wdTouched = true; });
+  async function tryFill() {
+    const categoryName = (categorySel && categorySel.value || '').trim();
+    const sceneName = (nameInput && nameInput.value || '').trim();
+    if (!categoryName && !sceneName) return;
+    try {
+      const params = new URLSearchParams({ category: categoryName, name: sceneName });
+      const res = await fetch(`/api/atlas/category-template?${params}`, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data) return;
+      if (!wsTouched && data.workstation) {
+        wsInput.value = data.workstation;
+        wsInput.placeholder = '已自动从「业态字典」补全（' + (data.category || '') + ' / ' + (data.name || '') + '）';
+      }
+      if (!wdTouched && data.workDetail) {
+        wdInput.value = data.workDetail;
+        wdInput.placeholder = '已自动从「业态字典」补全（' + (data.category || '') + ' / ' + (data.name || '') + '）';
+      }
+    } catch (err) {
+      console.warn('auto-fill failed:', err.message);
+    }
+  }
+  // 初始化时若工位/工作内容为空则尝试补全
+  if (!wsInput.value || !wdInput.value) tryFill();
+  if (categorySel) categorySel.addEventListener('change', () => { if (!wsTouched && !wdTouched) tryFill(); });
+  if (nameInput) nameInput.addEventListener('blur', () => { if (!wsTouched || !wdTouched) tryFill(); });
+}
+
+
 async function api(path, options = {}) {
+  const opts = { ...options };
+  if (opts.body && typeof opts.body !== 'string' && !(opts.body instanceof FormData) && !(opts.body instanceof Blob)) {
+    opts.body = JSON.stringify(opts.body);
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  }
   const response = await fetch(path, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -478,23 +525,17 @@ function renderAtlasWorkbench() {
   workspace.classList.remove('dashboard-mode');
   workspace.classList.add('no-sidebar');
   if (moduleSidebar) moduleSidebar.hidden = true;
-  toolbarSearch.hidden = true;
+  if (filters) { filters.innerHTML = ''; filters.hidden = true; }
+  if (toolbarSearch) toolbarSearch.hidden = true;
   closeEditor();
   $('#moduleTitle').textContent = 'Atlas 采集工作台';
-  $('#moduleDesc').textContent = '承接 atlas-cj 的场景报备、工位明细、业态字典和 Word 生成流程。';
+  $('#moduleDesc').textContent = '场景报备的审核与图片管理。';
   $('#newBtn').hidden = true;
-  $('#importBtn').hidden = true;
-  $('#exportBtn').hidden = true;
-  if (batchDeleteBtn) batchDeleteBtn.hidden = true;
-  stats.hidden = false;
-  stats.innerHTML = [
-    ['场景数', cards.sceneCount || 0],
-    ['工位数', cards.recordCount || 0],
-    ['图片数', cards.imageCount || 0],
-    ['采集人', cards.collectorCount || 0],
-    ['单位数', cards.unitCount || 0],
-  ].map(([label, value]) => `<div class="stat"><span>${label}</span><b>${value}</b></div>`).join('');
-  table.hidden = true;
+    $('#importBtn').hidden = true;
+    $('#exportBtn').hidden = true;
+    if (batchDeleteBtn) batchDeleteBtn.hidden = true;
+    stats.hidden = true;
+    table.hidden = true;
   mapView.hidden = true;
   $('#emptyState').hidden = true;
   let dashboardRoot = $('#dashboardRoot');
@@ -503,30 +544,587 @@ function renderAtlasWorkbench() {
     dashboardRoot = $('#dashboardRoot');
   }
   dashboardRoot.hidden = false;
+  const sceneCount = (data.records?.records || []).reduce((m, r) => { if (r.sceneName && !m.has(r.sceneName)) m.set(r.sceneName, true); return m; }, new Map()).size;
+  const pendingCount = Object.entries(summary.byStatus || {}).filter(([k]) => k.includes('审') || k.toLowerCase().includes('pending')).reduce((s, [, v]) => s + v, 0);
   dashboardRoot.innerHTML = `
-    <section class="atlas-workbench">
-      ${state.atlasWorkbenchError ? `<div class="dashboard-alert">Atlas 数据暂时不可用：${escapeHtml(state.atlasWorkbenchError)}</div>` : ''}
-      <div class="atlas-toolbar">
-        <div class="atlas-tabs">${renderAtlasWorkbenchTabs()}</div>
-        <div class="atlas-actions">
-          <button class="btn" id="atlasRefresh" type="button">刷新</button>
-          <button class="btn primary" id="atlasGenerateSelected" type="button">生成选中场景</button>
-          <button class="btn" id="atlasClearEdits" type="button">清空编辑覆盖</button>
+      <section class="atlas-workbench">
+        ${state.atlasWorkbenchError ? `<div class="dashboard-alert">Atlas 数据暂时不可用：${escapeHtml(state.atlasWorkbenchError)}</div>` : ''}
+        <div class="atlas-toolbar">
+          <input type="search" id="atlasSearch" class="atlas-search-input" placeholder="搜索场景名 / 编号 / 业态 / 采集人 / 位置..." value="${escapeHtml(state.atlasWorkbenchSearch || '')}">
+          <div class="atlas-actions">
+            <button class="btn" id="atlasImportBtn" type="button" title="选择飞书导出的 zip（含 xlsx + 图片）">导入</button>
+            <button class="btn primary" id="atlasExportBtn" type="button" title="下载 zip（含 xlsx + 图片附件）">导出</button>
+          </div>
+          <div class="atlas-view-toggle">
+            <button class="atlas-view-btn ${state.atlasWorkbenchView !== 'list' ? 'active' : ''}" data-view="card" type="button" title="卡片视图">▦ 卡片</button>
+            <button class="atlas-view-btn ${state.atlasWorkbenchView === 'list' ? 'active' : ''}" data-view="list" type="button" title="列表视图">≡ 列表</button>
+          </div>
         </div>
-      </div>
-      ${renderAtlasWorkbenchBody(data)}
+      ${renderAtlasSceneList(data)}
     </section>`;
-  dashboardRoot.querySelectorAll('.atlas-tab').forEach(button => button.addEventListener('click', () => {
-    state.atlasWorkbenchTab = button.dataset.tab;
+  bindAtlasWorkbenchEvents();
+}
+
+function renderAtlasSceneList(data) {
+  const records = data.records?.records || [];
+  const search = (state.atlasWorkbenchSearch || '').trim().toLowerCase();
+  const view = state.atlasWorkbenchView || 'card';
+  // 按 sceneName 聚合（同一商家只显示一个卡片）
+  const buckets = new Map();
+  records.forEach(r => {
+    if (!buckets.has(r.sceneName)) buckets.set(r.sceneName, []);
+    buckets.get(r.sceneName).push(r);
+  });
+  let scenes = Array.from(buckets.entries()).map(([name, items]) => {
+    const first = items[0];
+    return {
+      name,
+      reportId: first.reportId,
+      category: first.category,
+      subcategory: first.subcategory,
+      status: first.status,
+      reportDate: first.reportDate,
+      location: first.location,
+      collector: items.map(r => r.collector).filter(Boolean).join('、'),
+      imageCount: items.reduce((s, r) => s + r.imageList.length, 0),
+      preview: first.imageList[0] || '',
+      imageDir: first.imageDir || '',
+      records: items,
+    };
+  });
+  // 搜索过滤
+  if (search) {
+    scenes = scenes.filter(s => {
+      const haystack = [s.name, s.reportId, s.category, s.subcategory, s.location, s.collector].join(' ').toLowerCase();
+      return haystack.includes(search);
+    });
+  }
+  // 分页
+  const pageSize = state.atlasWorkbenchPageSize || 12;
+  const totalPages = Math.max(1, Math.ceil(scenes.length / pageSize));
+  if (!state.atlasWorkbenchPage || state.atlasWorkbenchPage > totalPages) state.atlasWorkbenchPage = 1;
+  const pageIdx = (state.atlasWorkbenchPage - 1) * pageSize;
+  const pageScenes = scenes.slice(pageIdx, pageIdx + pageSize);
+  if (scenes.length === 0) {
+    return `<p class="dashboard-empty">${search ? `未找到匹配「${escapeHtml(search)}」的场景` : '暂无场景报备数据'}</p>`;
+  }
+  const body = view === 'list' ? renderAtlasSceneTable(pageScenes) : `<div class="atlas-list-grid">${pageScenes.map(scene => renderAtlasSceneCard(scene)).join('')}</div>`;
+  return body;
+}
+
+function renderAtlasPagination(total, pageSize, current) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) return '';
+  const btn = (label, page, disabled = false, active = false) => `<button class="atlas-page-btn${active ? ' active' : ''}" data-page="${page}" type="button"${disabled ? ' disabled' : ''}>${label}</button>`;
+  const pages = [];
+  pages.push(btn('‹ 上一页', current - 1, current <= 1));
+  const win = 2;
+  const start = Math.max(1, current - win);
+  const end = Math.min(totalPages, current + win);
+  if (start > 1) pages.push(btn('1', 1), '<span class="atlas-page-dots">…</span>');
+  for (let p = start; p <= end; p++) pages.push(btn(String(p), p, false, p === current));
+  if (end < totalPages) pages.push('<span class="atlas-page-dots">…</span>', btn(String(totalPages), totalPages));
+  pages.push(btn('下一页 ›', current + 1, current >= totalPages));
+  return `<div class="atlas-pagination">
+    <span class="atlas-page-info">共 ${total} 条 · 第 ${current}/${totalPages} 页 · 每页 ${pageSize} 条</span>
+    <div class="atlas-page-btns">${pages.join('')}</div>
+    <label class="atlas-page-size">每页
+      <select id="atlasPageSize">
+        <option value="6"${pageSize === 6 ? ' selected' : ''}>6</option>
+        <option value="12"${pageSize === 12 ? ' selected' : ''}>12</option>
+        <option value="24"${pageSize === 24 ? ' selected' : ''}>24</option>
+        <option value="48"${pageSize === 48 ? ' selected' : ''}>48</option>
+      </select>
+    </label>
+  </div>`;
+}
+
+function renderAtlasSceneTable(scenes) {
+  return `<table class="atlas-record-table atlas-table-list">
+    <thead><tr>
+      <th class="atlas-checkbox-cell"><input type="checkbox" id="atlasSelectAll" aria-label="全选"></th>
+      <th>编号</th><th>场景</th><th>业态</th><th>位置</th><th>采集人</th><th>图</th><th>状态</th><th>审核时长(H)</th><th>操作</th>
+    </tr></thead>
+    <tbody>${scenes.map(scene => {
+      const statusClass = atlasStatusClass(scene.status);
+      return `<tr>
+        <td class="atlas-checkbox-cell"><input type="checkbox" class="atlas-row-check" data-scene="${escapeHtml(scene.name)}" aria-label="选择 ${escapeHtml(scene.name)}"></td>
+        <td>${escapeHtml(scene.reportId || '')}</td>
+        <td>${escapeHtml(scene.name)}</td>
+        <td>${escapeHtml(scene.category || '-')} / ${escapeHtml(scene.subcategory || '-')}</td>
+        <td>${escapeHtml(scene.location || '-')}</td>
+        <td>${escapeHtml(scene.collector || '-')}</td>
+        <td>${scene.imageCount || 0}</td>
+        <td><span class="atlas-status-badge ${statusClass}">${escapeHtml(scene.status || '-')}</span></td>
+        <td>${scene.reviewHours != null && scene.reviewHours !== '' ? escapeHtml(String(scene.reviewHours)) : '-'}</td>
+        <td class="atlas-table-actions">
+          <button class="btn" data-action="view-detail" data-scene="${escapeHtml(scene.name)}" type="button">详情</button>
+          <button class="btn" data-action="edit-scene" data-scene="${escapeHtml(scene.name)}" type="button">编辑</button>
+          <button class="btn atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>
+  <div class="atlas-batch-bar">
+    <span class="atlas-batch-count">已选 <b id="atlasSelectedCount">0</b> 个场景</span>
+    <button class="btn atlas-btn-approve" id="atlasBatchApprove" type="button" disabled>批量审核通过</button>
+    <button class="btn atlas-btn-reject" id="atlasBatchReject" type="button" disabled>批量驳回</button>
+  </div>`;
+}
+
+function atlasStatusClass(status) {
+  const s = String(status || '');
+  if (s.includes('审核') && !s.includes('驳')) return 'pending';
+  if (s === '已审核' || s.includes('通过') || s.toLowerCase().includes('approved')) return 'approved';
+  if (s === '已驳回' || s.includes('拒绝') || s.toLowerCase().includes('rejected')) return 'rejected';
+  return 'other';
+}
+
+function renderAtlasSceneCard(scene) {
+  const previewUrl = scene.preview ? (scene.imageDir.split('/').map(encodeURIComponent).join('/') + '/' + encodeURIComponent(scene.preview)) : '';
+  const statusClass = atlasStatusClass(scene.status);
+  const hours = scene.reviewHours != null && scene.reviewHours !== '' ? `<span class="atlas-card-hours">审核 ${escapeHtml(String(scene.reviewHours))}h</span>` : '';
+  return `<article class="atlas-card" data-scene="${escapeHtml(scene.name)}">
+    <div class="atlas-card-head">
+      <input type="checkbox" class="atlas-row-check" data-scene="${escapeHtml(scene.name)}" aria-label="选择 ${escapeHtml(scene.name)}">
+      <span class="atlas-status-badge ${statusClass}">${escapeHtml(scene.status || '待审核')}</span>
+      ${hours}
+    </div>
+    <div class="atlas-card-thumb">
+      ${previewUrl ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(scene.name)}" loading="lazy">` : '<div class="atlas-card-thumb-empty">无图</div>'}
+    </div>
+    <div class="atlas-card-body">
+      <h4>${escapeHtml(scene.name)}</h4>
+      <p class="atlas-card-meta"><b>${escapeHtml(scene.category || '-')}</b> / ${escapeHtml(scene.subcategory || '-')}</p>
+      <p class="atlas-card-meta atlas-card-loc">${escapeHtml(scene.location || '-')}</p>
+      <p class="atlas-card-meta">
+        <span>采集：${escapeHtml(scene.collector || '-')}</span>
+        <span>· ${scene.imageCount || 0} 张图</span>
+      </p>
+      <p class="atlas-card-meta atlas-card-id">${escapeHtml(scene.reportId || '')} · ${escapeHtml(String(scene.reportDate || '').slice(0, 10))}</p>
+    </div>
+    <div class="atlas-card-actions">
+      <button class="btn" data-action="view-detail" data-scene="${escapeHtml(scene.name)}" type="button">查看详情</button>
+      <button class="btn" data-action="view-images" data-scene="${escapeHtml(scene.name)}" type="button">查看图片</button>
+      <button class="btn atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核</button>
+    </div>
+  </article>`;
+}
+
+
+function openAtlasGallery(sceneName) {
+  const data = state.atlasWorkbench || {};
+  const records = data.records?.records || [];
+  const items = records.filter(r => r.sceneName === sceneName);
+  const imageList = [];
+  const dir = items[0]?.imageDir || '';
+  const encodedDir = dir.split('/').map(encodeURIComponent).join('/');
+  items.forEach(r => (r.imageList || []).forEach(f => imageList.push({ url: encodedDir + '/' + encodeURIComponent(f), name: f })));
+  const existing = $('#atlasGalleryModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasGalleryModal';
+  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-gallery"></div>
+    <div class="atlas-modal atlas-gallery-modal" role="dialog" aria-modal="true">
+      <header class="atlas-modal-header"><h3>${escapeHtml(sceneName)} · 图片（${imageList.length}）</h3><button class="atlas-modal-close" data-action="close-gallery" type="button">×</button></header>
+      <div class="atlas-modal-body">
+        ${imageList.length ? `<div class="atlas-gallery-grid">${imageList.map(img => `<a href="${escapeHtml(img.url)}" target="_blank" rel="noreferrer" class="atlas-gallery-item"><img src="${escapeHtml(img.url)}" alt="${escapeHtml(img.name)}" loading="lazy"><span>${escapeHtml(img.name)}</span></a>`).join('')}</div>` : '<p class="dashboard-empty">此场景暂无图片</p>'}
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll('[data-action="close-gallery"]').forEach(el => el.addEventListener('click', () => div.remove()));
+}
+
+function renderAtlasSceneModal(scene) {
+  return `<div class="atlas-modal-backdrop" data-action="close-modal"></div>
+    <div class="atlas-modal" role="dialog" aria-modal="true">
+      <header class="atlas-modal-header">
+        <h3>${escapeHtml(scene.name)}</h3>
+        <button class="atlas-modal-close" data-action="close-modal" type="button">×</button>
+      </header>
+      <div class="atlas-modal-body">
+        <dl class="atlas-meta-grid">
+          <dt>编号</dt><dd>${escapeHtml((scene.records || []).map(r => r.reportId).filter(Boolean).join('、') || '-')}</dd>
+          <dt>业态</dt><dd>${escapeHtml(scene.category || '-')} / ${escapeHtml(scene.subcategory || '-')}</dd>
+          <dt>位置</dt><dd>${escapeHtml(scene.location || '-')}</dd>
+          <dt>采集人</dt><dd>${escapeHtml(scene.collector || '-')}</dd>
+          <dt>报备日期</dt><dd>${escapeHtml(String(scene.reportDate || '').slice(0, 10))}</dd>
+          <dt>审核状态</dt><dd><span class="atlas-status-badge ${atlasStatusClass(scene.status)}">${escapeHtml(scene.status || '待审核')}</span></dd>
+          <dt>审核时长(H)</dt><dd>${scene.reviewHours != null && scene.reviewHours !== '' ? escapeHtml(String(scene.reviewHours)) : '-'}</dd>
+        </dl>
+        <h4>工位记录</h4>
+        <table class="atlas-record-table"><thead><tr><th>编号</th><th>工位</th><th>工作内容</th></tr></thead><tbody>${(scene.records || []).map(record => `<tr><td>${escapeHtml(record.reportId)}</td><td>${escapeHtml(record.workstation || '-')}</td><td>${escapeHtml(record.workDetail || '-')}</td></tr>`).join('')}</tbody></table>
+      </div>
+      <footer class="atlas-modal-footer">
+        <button class="btn" data-action="view-images" data-scene="${escapeHtml(scene.name)}" type="button">查看图片</button>
+        <span style="flex:1"></span>
+        <button class="btn" data-action="close-modal" type="button">关闭</button>
+        <button class="btn atlas-btn-reject" data-action="reject" data-scene="${escapeHtml(scene.name)}" type="button">驳回</button>
+        <button class="btn primary atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核通过</button>
+      </footer>
+    </div>`;
+}
+
+function bindAtlasWorkbenchEvents() {
+  const root = $('#dashboardRoot');
+  if (!root) return;
+  // 搜索框
+  const search = $('#atlasSearch');
+  if (search) {
+    let timer = null;
+    search.addEventListener('input', (e) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        state.atlasWorkbenchSearch = e.target.value;
+        state.atlasWorkbenchPage = 1;
+        renderAtlasWorkbench();
+      }, 200);
+    });
+  }
+  // 视图切换
+  root.querySelectorAll('.atlas-view-btn').forEach(btn => btn.addEventListener('click', () => {
+    state.atlasWorkbenchView = btn.dataset.view;
+    state.atlasWorkbenchPage = 1;
     renderAtlasWorkbench();
   }));
-  dashboardRoot.querySelectorAll('.atlas-scene-card').forEach(button => button.addEventListener('click', () => selectAtlasScene(button.dataset.scene)));
-  $('#atlasRefresh').addEventListener('click', async () => {
+  // 分页按钮
+  root.querySelectorAll('.atlas-page-btn').forEach(btn => btn.addEventListener('click', (e) => {
+    const p = parseInt(btn.dataset.page, 10);
+    if (!isNaN(p) && p > 0) {
+      state.atlasWorkbenchPage = p;
+      renderAtlasWorkbench();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }));
+  // 每页数量
+  const pageSizeSel = $('#atlasPageSize');
+  if (pageSizeSel) {
+    pageSizeSel.addEventListener('change', (e) => {
+      state.atlasWorkbenchPageSize = parseInt(e.target.value, 10);
+      state.atlasWorkbenchPage = 1;
+      renderAtlasWorkbench();
+    });
+  }
+  // 卡片操作
+  root.querySelectorAll('[data-action="view-detail"]').forEach(btn => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openAtlasSceneModal(btn.dataset.scene);
+  }));
+  root.querySelectorAll('[data-action="edit-scene"]').forEach(btn => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openAtlasEditModal(btn.dataset.scene);
+  }));
+  root.querySelectorAll('[data-action="approve"]').forEach(btn => btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      reviewAtlasScene(btn.dataset.scene, 'approved');
+    }));
+    root.querySelectorAll('[data-action="reject"]').forEach(btn => btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      reviewAtlasScene(btn.dataset.scene, 'rejected');
+    }));
+    // 列表视图：checkbox 全选 / 单选 + 批量审核按钮
+    const selectAll = root.querySelector('#atlasSelectAll');
+    const rowChecks = root.querySelectorAll('.atlas-row-check');
+    const countEl = root.querySelector('#atlasSelectedCount');
+    const batchApprove = root.querySelector('#atlasBatchApprove');
+    const batchReject = root.querySelector('#atlasBatchReject');
+    function updateSelection() {
+      const checked = root.querySelectorAll('.atlas-row-check:checked');
+      if (countEl) countEl.textContent = String(checked.length);
+      if (batchApprove) batchApprove.disabled = checked.length === 0;
+      if (batchReject) batchReject.disabled = checked.length === 0;
+      if (selectAll) {
+        selectAll.checked = checked.length === rowChecks.length && rowChecks.length > 0;
+        selectAll.indeterminate = checked.length > 0 && checked.length < rowChecks.length;
+      }
+    }
+    rowChecks.forEach(c => c.addEventListener('change', updateSelection));
+    if (selectAll) selectAll.addEventListener('change', () => {
+      rowChecks.forEach(c => { c.checked = selectAll.checked; });
+      updateSelection();
+    });
+    if (batchApprove) batchApprove.addEventListener('click', async () => {
+      const checked = Array.from(root.querySelectorAll('.atlas-row-check:checked')).map(c => c.dataset.scene);
+      if (!checked.length) return;
+      await reviewAtlasScenes(checked, 'approved');
+    });
+    if (batchReject) batchReject.addEventListener('click', async () => {
+      const checked = Array.from(root.querySelectorAll('.atlas-row-check:checked')).map(c => c.dataset.scene);
+      if (!checked.length) return;
+      await reviewAtlasScenes(checked, 'rejected');
+    });
+    root.querySelectorAll('[data-action="close-modal"]').forEach(btn => btn.addEventListener('click', closeAtlasSceneModal));
+    const exportBtn = $('#atlasExportBtn');
+      if (exportBtn) exportBtn.addEventListener('click', () => { window.location.href = '/api/atlas/workbench/export'; });
+      const importBtn = $('#atlasImportBtn');
+      if (importBtn) importBtn.addEventListener('click', () => openAtlasImportModal());
+    }
+
+    function openAtlasSceneModal(sceneName) {
+      const data = state.atlasWorkbench || {};
+  const records = data.records?.records || [];
+  const items = records.filter(r => r.sceneName === sceneName);
+  if (items.length === 0) return;
+  const first = items[0];
+  const scene = {
+    name: sceneName,
+    reportId: first.reportId,
+    category: first.category,
+    subcategory: first.subcategory,
+    status: first.status,
+    reportDate: first.reportDate,
+    location: first.location,
+    collector: items.map(r => r.collector).filter(Boolean).join('、'),
+    imageCount: items.reduce((s, r) => s + r.imageList.length, 0),
+    imageDir: first.imageDir || '',
+    records: items,
+  };
+  const existing = $('#atlasSceneModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasSceneModal';
+  div.innerHTML = renderAtlasSceneModal(scene);
+  document.body.appendChild(div);
+  bindAtlasSceneModalEvents(sceneName);
+}
+
+function bindAtlasSceneModalEvents(sceneName) {
+  const modal = $('#atlasSceneModal');
+  if (!modal) return;
+  modal.querySelectorAll('[data-action="close-modal"]').forEach(el => el.addEventListener('click', closeAtlasSceneModal));
+  modal.querySelectorAll('[data-action="approve"]').forEach(btn => btn.addEventListener('click', async () => {
+    await reviewAtlasScene(sceneName, 'approved');
+    closeAtlasSceneModal();
+  }));
+  modal.querySelectorAll('[data-action="reject"]').forEach(btn => btn.addEventListener('click', async () => {
+    await reviewAtlasScene(sceneName, 'rejected');
+    closeAtlasSceneModal();
+  }));
+  modal.querySelectorAll('[data-action="view-images"]').forEach(btn => btn.addEventListener('click', () => {
+    openAtlasGallery(sceneName);
+  }));
+}
+
+function closeAtlasSceneModal() {
+  const modal = $('#atlasSceneModal');
+  if (modal) modal.remove();
+}
+
+function openAtlasCategoriesModal() {
+  const data = state.atlasWorkbench || {};
+  const cats = data.categories?.categories || [];
+  const business = data.categories?.businessTypes || [];
+  const existing = $('#atlasExtraModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasExtraModal';
+  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-extra"></div>
+    <div class="atlas-modal" role="dialog">
+      <header class="atlas-modal-header"><h3>业态字典（${cats.length} 大类 / ${cats.reduce((s, c) => s + (c.subcategories || []).length, 0)} 子类）</h3><button class="atlas-modal-close" data-action="close-extra" type="button">×</button></header>
+      <div class="atlas-modal-body">
+        <div class="atlas-dict-list">${cats.map(c => `<article><b>${escapeHtml(c.category || '')}</b><span>${escapeHtml((c.subcategories || []).join('、'))}</span></article>`).join('') || '<p class="dashboard-empty">暂无业态</p>'}</div>
+        <p>业务采集模板：${business.length} 条</p>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll('[data-action="close-extra"]').forEach(el => el.addEventListener('click', () => div.remove()));
+}
+
+function openAtlasImportModal() {
+  const existing = $('#atlasExtraModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasExtraModal';
+  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-extra"></div>
+    <div class="atlas-modal" role="dialog" aria-modal="true" style="width:min(560px,90vw)">
+      <header class="atlas-modal-header"><h3>导入 atlas 数据包（zip）</h3><button class="atlas-modal-close" data-action="close-extra" type="button">×</button></header>
+      <div class="atlas-modal-body">
+        <div class="atlas-edit-hint"><strong>📦 飞书导出压缩包：</strong>选择一个 .zip 文件，里面同时包含 <code>atlas_report.xlsx</code> 和 <code>images/</code> 图片目录。系统会自动识别并替换报备表 + 图片附件，操作前都会先备份原数据。</div>
+        <input type="file" id="atlasImportFile" accept=".zip" style="display:block;margin:12px 0;padding:8px;width:100%;border:1px dashed var(--line);border-radius:6px">
+        <div id="atlasImportMsg" style="font-size:13px;color:#6b7280;min-height:18px"></div>
+        <div class="atlas-edit-actions">
+          <button class="btn" data-action="close-extra" type="button">取消</button>
+          <button class="btn primary" id="atlasImportSubmitBtn" type="button" disabled>导入并替换</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll('[data-action="close-extra"]').forEach(el => el.addEventListener('click', () => div.remove()));
+  const fileInput = $('#atlasImportFile');
+  const submitBtn = $('#atlasImportSubmitBtn');
+  const msg = $('#atlasImportMsg');
+  let selectedFile = null;
+  fileInput.addEventListener('change', (e) => {
+    selectedFile = e.target.files[0] || null;
+    submitBtn.disabled = !selectedFile;
+    msg.textContent = selectedFile ? `已选择：${selectedFile.name}（${(selectedFile.size / 1024).toFixed(1)} KB）` : '';
+  });
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    if (!confirm(`确认用 ${selectedFile.name} 替换 atlas 数据？当前 xlsx 和 images/ 都会先备份。`)) return;
+    submitBtn.disabled = true;
+    msg.textContent = '导入中...';
+    try {
+      const res = await fetch('/api/atlas/workbench/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: selectedFile,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      msg.style.color = result.ok ? '#065f46' : '#991b1b';
+      if (result.ok) {
+        const lines = [
+          `✓ 导入成功`,
+          `报备表：${result.importedRows} 条（备份 ${result.xlsxBackup}）`,
+          `图片：${result.imagesExtracted} 个文件（备份 ${result.imageBackup || '-'}）`,
+        ];
+        if (result.imagesFailed) lines.push(`失败：${result.imagesFailed}`);
+        msg.innerHTML = lines.map(l => `<div>${escapeHtml(l)}</div>`).join('');
+        await loadAtlasWorkbench();
+        renderAtlasWorkbench();
+      } else {
+        msg.textContent = '✗ 失败：' + (result.reason || '');
+        submitBtn.disabled = false;
+      }
+    } catch (err) {
+      msg.textContent = '✗ 错误：' + (err.message || err);
+      msg.style.color = '#991b1b';
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function openAtlasOutputModal() {
+  const data = state.atlasWorkbench || {};
+  const files = data.output?.files || [];
+  const existing = $('#atlasExtraModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasExtraModal';
+  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-extra"></div>
+    <div class="atlas-modal" role="dialog">
+      <header class="atlas-modal-header"><h3>生成文件</h3><button class="atlas-modal-close" data-action="close-extra" type="button">×</button></header>
+      <div class="atlas-modal-body">
+        ${files.length === 0 ? '<p class="dashboard-empty">暂无生成文件</p>' : files.map(f => `<a href="${escapeHtml(f.downloadUrl)}" target="_blank" rel="noreferrer"><b>${escapeHtml(f.name)}</b><span>${Math.ceil((f.size || 0) / 1024)} KB</span></a>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll('[data-action="close-extra"]').forEach(el => el.addEventListener('click', () => div.remove()));
+}
+
+function openAtlasEditModal(sceneName) {
+  const data = state.atlasWorkbench || {};
+  const records = data.records?.records || [];
+  const items = records.filter(r => r.sceneName === sceneName);
+  if (items.length === 0) return;
+  const first = items[0];
+  const existing = $('#atlasSceneModal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'atlasSceneModal';
+  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-modal"></div>
+    <div class="atlas-modal" role="dialog" aria-modal="true">
+      <header class="atlas-modal-header">
+        <h3>编辑：${escapeHtml(sceneName)}</h3>
+        <button class="atlas-modal-close" data-action="close-modal" type="button">×</button>
+      </header>
+      <form id="atlasEditForm" class="atlas-modal-body atlas-edit-form">
+        <div class="atlas-edit-hint">所有修改会自动备份 atlas_report.xlsx，<strong>共 ${items.length} 条记录</strong>会同步更新。</div>
+        <div class="atlas-edit-grid">
+          <label>业态大类<input name="category" value="${escapeHtml(first.category || '')}"></label>
+          <label>细分业态<input name="subcategory" value="${escapeHtml(first.subcategory || '')}"></label>
+          <label class="span2">位置<textarea name="location" rows="2">${escapeHtml(first.location || '')}</textarea></label>
+          <label>采集人<input name="collector" value="${escapeHtml(items.map(r => r.collector).filter(Boolean).join('、') || '')}"></label>
+          <label>报备状态<select name="status">
+            <option value="">（不改）</option>
+            <option value="待审批" ${first.status === '待审批' ? 'selected' : ''}>待审批</option>
+            <option value="通过" ${first.status === '通过' ? 'selected' : ''}>通过</option>
+            <option value="拒绝" ${first.status === '拒绝' ? 'selected' : ''}>拒绝</option>
+          </select></label>
+          <label class="span2">备注<textarea name="notes" rows="2">${escapeHtml(first.notes || '')}</textarea></label>
+        </div>
+        <div class="atlas-edit-records">
+          <h4>各记录（独立修改）</h4>
+          ${items.map((r, i) => `<details><summary>${escapeHtml(r.reportId)} · 工位=${escapeHtml(r.workstation || '-')}</summary>
+            <div class="atlas-edit-grid" style="margin-top:8px">
+              <label>工位清单<input data-record-id="${escapeHtml(r.reportId)}" data-field="workstation" value="${escapeHtml(r.workstation || '')}"></label>
+              <label>工作内容<textarea data-record-id="${escapeHtml(r.reportId)}" data-field="workDetail" rows="2">${escapeHtml(r.workDetail || '')}</textarea></label>
+            </div></details>`).join('')}
+        </div>
+        <div class="atlas-edit-actions">
+          <button class="btn" data-action="close-modal" type="button">取消</button>
+          <button class="btn primary" type="submit">保存</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(div);
+  div.querySelectorAll('[data-action="close-modal"]').forEach(el => el.addEventListener('click', closeAtlasSceneModal));
+  $('#atlasEditForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const sceneFields = {
+      category: fd.get('category') || '',
+      subcategory: fd.get('subcategory') || '',
+      location: fd.get('location') || '',
+      collector: fd.get('collector') || '',
+      status: fd.get('status') || '',
+      notes: fd.get('notes') || '',
+    };
+    const recordEdits = {};
+    div.querySelectorAll('[data-record-id][data-field]').forEach(el => {
+      const id = el.dataset.recordId;
+      const f = el.dataset.field;
+      if (!recordEdits[id]) recordEdits[id] = {};
+      recordEdits[id][f] = el.value;
+    });
+    await saveAtlasEdit(sceneName, sceneFields, recordEdits);
+  });
+}
+
+async function saveAtlasEdit(sceneName, sceneFields, recordEdits) {
+  try {
+    const res = await api('/api/atlas/workbench/edit', {
+      method: 'POST',
+      body: { sceneName, sceneFields, recordEdits },
+    });
+    alert(res.ok ? `已保存（备份 ${res.backup}，修改 ${res.changed} 条）` : '保存失败：' + (res.reason || ''));
+    if (res.ok) {
+      closeAtlasSceneModal();
+      await loadAtlasWorkbench();
+      renderAtlasWorkbench();
+    }
+  } catch (err) {
+    alert('保存失败：' + (err.message || err));
+  }
+}
+
+async function reviewAtlasScene(sceneName, newStatus) {
+  return reviewAtlasScenes([sceneName], newStatus);
+}
+
+async function reviewAtlasScenes(sceneNames, newStatus) {
+  if (!sceneNames || !sceneNames.length) return { ok: false, reason: 'no_selection' };
+  if (!confirm(`确认将「${sceneNames.join('、')}」共 ${sceneNames.length} 个场景改为「${newStatus === 'approved' ? '已审核' : '已驳回'}」？`)) return;
+  try {
+    const res = await api('/api/atlas/workbench/review', {
+      method: 'POST',
+      body: { sceneNames, status: newStatus },
+    });
+    if (res.ok) {
+      alert(`已更新 ${res.changed} 条记录，状态：${res.newStatus}（审核时长已写入）`);
+    } else {
+      alert('更新失败：' + (res.reason || ''));
+    }
     await loadAtlasWorkbench();
     renderAtlasWorkbench();
-  });
-  $('#atlasGenerateSelected').addEventListener('click', atlasGenerateSelected);
-  $('#atlasClearEdits').addEventListener('click', atlasClearEdits);
+  } catch (err) {
+    alert('审核失败：' + (err.message || err));
+  }
 }
 
 function renderAtlasWorkbenchTabs() {
@@ -1011,10 +1609,11 @@ async function renderForm() {
   $('#formTitle').textContent = isDetail ? `详情：${selected[mod.primaryField] || ''}` : (selected.id ? `编辑：${selected[mod.primaryField] || ''}` : `新增${mod.title}`);
   $('#formSubtitle').textContent = selected.id ? selected.id : (readOnly ? '当前模块不可新增' : '填写后保存到服务器数据库');
   recordForm.innerHTML = `<input type="hidden" name="id" value="${escapeHtml(selected.id || '')}">${renderFields(mod.fields, selected, readOnly)}<div class="hint">${isDetail ? '当前为详情查看，可从列表点击编辑进入修改。' : (mod.readOnly ? '日志模块为只读审计记录。' : '数据会保存到服务器 SQLite 数据库。')}</div><div class="actions"><button class="btn primary" type="submit" ${readOnly ? 'disabled' : ''}>保存记录</button><button class="btn" id="clearBtn" type="button" ${canCreate() && !isDetail ? '' : 'disabled'}>清空</button><button class="btn" id="deleteBtn" type="button" ${deleteDisabled || isDetail ? 'disabled' : ''}>删除</button></div>`;
-  $('#clearBtn').addEventListener('click', () => {
-    openEditor('create', '');
-  });
-  $('#deleteBtn').addEventListener('click', deleteSelected);
+    if (modKey === 'atl_collection_scenarios') setupAtlAutoFill();
+    $('#clearBtn').addEventListener('click', () => {
+      openEditor('create', '');
+    });
+    $('#deleteBtn').addEventListener('click', deleteSelected);
 }
 
 async function preloadLookups(mod) {
