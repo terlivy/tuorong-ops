@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS atl_collection_scenarios (
   atlPlatform TEXT,
   readiness TEXT,
   status TEXT,
+  workstation TEXT,
+  workDetail TEXT,
   notes TEXT
 );
 

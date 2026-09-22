@@ -544,16 +544,18 @@ function renderAtlasWorkbench() {
     dashboardRoot = $('#dashboardRoot');
   }
   dashboardRoot.hidden = false;
-  const sceneCount = (data.records?.records || []).reduce((m, r) => { if (r.sceneName && !m.has(r.sceneName)) m.set(r.sceneName, true); return m; }, new Map()).size;
-  const pendingCount = Object.entries(summary.byStatus || {}).filter(([k]) => k.includes('审') || k.toLowerCase().includes('pending')).reduce((s, [, v]) => s + v, 0);
   dashboardRoot.innerHTML = `
       <section class="atlas-workbench">
-        ${state.atlasWorkbenchError ? `<div class="dashboard-alert">Atlas 数据暂时不可用：${escapeHtml(state.atlasWorkbenchError)}</div>` : ''}
         <div class="atlas-toolbar">
           <input type="search" id="atlasSearch" class="atlas-search-input" placeholder="搜索场景名 / 编号 / 业态 / 采集人 / 位置..." value="${escapeHtml(state.atlasWorkbenchSearch || '')}">
           <div class="atlas-actions">
             <button class="btn" id="atlasImportBtn" type="button" title="选择飞书导出的 zip（含 xlsx + 图片）">导入</button>
             <button class="btn primary" id="atlasExportBtn" type="button" title="下载 zip（含 xlsx + 图片附件）">导出</button>
+          </div>
+          <div class="atlas-batch-inline">
+            <span class="atlas-batch-count">已选 <b id="atlasSelectedCount">0</b> 个场景</span>
+            <button class="btn atlas-btn-approve" id="atlasBatchApprove" type="button" disabled>批量审核通过</button>
+            <button class="btn atlas-btn-reject" id="atlasBatchReject" type="button" disabled>批量驳回</button>
           </div>
           <div class="atlas-view-toggle">
             <button class="atlas-view-btn ${state.atlasWorkbenchView !== 'list' ? 'active' : ''}" data-view="card" type="button" title="卡片视图">▦ 卡片</button>
@@ -577,6 +579,8 @@ function renderAtlasSceneList(data) {
   });
   let scenes = Array.from(buckets.entries()).map(([name, items]) => {
     const first = items[0];
+    const allImages = items.flatMap(r => r.imageList || []);
+    const imageDir = first.imageDir || '';
     return {
       name,
       reportId: first.reportId,
@@ -586,9 +590,10 @@ function renderAtlasSceneList(data) {
       reportDate: first.reportDate,
       location: first.location,
       collector: items.map(r => r.collector).filter(Boolean).join('、'),
-      imageCount: items.reduce((s, r) => s + r.imageList.length, 0),
-      preview: first.imageList[0] || '',
-      imageDir: first.imageDir || '',
+      imageCount: allImages.length,
+      imageList: allImages,
+      imageDir,
+      preview: allImages[0] || '',
       records: items,
     };
   });
@@ -608,8 +613,10 @@ function renderAtlasSceneList(data) {
   if (scenes.length === 0) {
     return `<p class="dashboard-empty">${search ? `未找到匹配「${escapeHtml(search)}」的场景` : '暂无场景报备数据'}</p>`;
   }
-  const body = view === 'list' ? renderAtlasSceneTable(pageScenes) : `<div class="atlas-list-grid">${pageScenes.map(scene => renderAtlasSceneCard(scene)).join('')}</div>`;
-  return body;
+  const body = view === 'list'
+    ? renderAtlasSceneTable(pageScenes)
+    : `<div class="atlas-list-grid">${pageScenes.map(scene => renderAtlasSceneCard(scene)).join('')}</div>`;
+  return body + renderAtlasPagination(scenes.length, pageSize, state.atlasWorkbenchPage);
 }
 
 function renderAtlasPagination(total, pageSize, current) {
@@ -642,13 +649,13 @@ function renderAtlasPagination(total, pageSize, current) {
 function renderAtlasSceneTable(scenes) {
   return `<table class="atlas-record-table atlas-table-list">
     <thead><tr>
-      <th class="atlas-checkbox-cell"><input type="checkbox" id="atlasSelectAll" aria-label="全选"></th>
-      <th>编号</th><th>场景</th><th>业态</th><th>位置</th><th>采集人</th><th>图</th><th>状态</th><th>审核时长(H)</th><th>操作</th>
+      <th class="selection-col"><input type="checkbox" id="atlasSelectAll" aria-label="全选"></th>
+      <th>编号</th><th>场景</th><th>业态</th><th>位置</th><th>采集人</th><th>图</th><th>状态</th><th>审核时长(H)</th><th class="action-col">操作</th>
     </tr></thead>
     <tbody>${scenes.map(scene => {
       const statusClass = atlasStatusClass(scene.status);
       return `<tr>
-        <td class="atlas-checkbox-cell"><input type="checkbox" class="atlas-row-check" data-scene="${escapeHtml(scene.name)}" aria-label="选择 ${escapeHtml(scene.name)}"></td>
+        <td class="selection-col"><input type="checkbox" class="atlas-row-check" data-scene="${escapeHtml(scene.name)}" aria-label="选择 ${escapeHtml(scene.name)}"></td>
         <td>${escapeHtml(scene.reportId || '')}</td>
         <td>${escapeHtml(scene.name)}</td>
         <td>${escapeHtml(scene.category || '-')} / ${escapeHtml(scene.subcategory || '-')}</td>
@@ -657,19 +664,14 @@ function renderAtlasSceneTable(scenes) {
         <td>${scene.imageCount || 0}</td>
         <td><span class="atlas-status-badge ${statusClass}">${escapeHtml(scene.status || '-')}</span></td>
         <td>${scene.reviewHours != null && scene.reviewHours !== '' ? escapeHtml(String(scene.reviewHours)) : '-'}</td>
-        <td class="atlas-table-actions">
+        <td class="action-col">
           <button class="btn" data-action="view-detail" data-scene="${escapeHtml(scene.name)}" type="button">详情</button>
           <button class="btn" data-action="edit-scene" data-scene="${escapeHtml(scene.name)}" type="button">编辑</button>
           <button class="btn atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核</button>
         </td>
       </tr>`;
     }).join('')}</tbody>
-  </table>
-  <div class="atlas-batch-bar">
-    <span class="atlas-batch-count">已选 <b id="atlasSelectedCount">0</b> 个场景</span>
-    <button class="btn atlas-btn-approve" id="atlasBatchApprove" type="button" disabled>批量审核通过</button>
-    <button class="btn atlas-btn-reject" id="atlasBatchReject" type="button" disabled>批量驳回</button>
-  </div>`;
+  </table>`;
 }
 
 function atlasStatusClass(status) {
@@ -704,38 +706,24 @@ function renderAtlasSceneCard(scene) {
       <p class="atlas-card-meta atlas-card-id">${escapeHtml(scene.reportId || '')} · ${escapeHtml(String(scene.reportDate || '').slice(0, 10))}</p>
     </div>
     <div class="atlas-card-actions">
-      <button class="btn" data-action="view-detail" data-scene="${escapeHtml(scene.name)}" type="button">查看详情</button>
-      <button class="btn" data-action="view-images" data-scene="${escapeHtml(scene.name)}" type="button">查看图片</button>
-      <button class="btn atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核</button>
-    </div>
-  </article>`;
-}
+          <button class="btn" data-action="view-detail" data-scene="${escapeHtml(scene.name)}" type="button">查看详情</button>
+          <button class="btn atlas-btn-approve" data-action="approve" data-scene="${escapeHtml(scene.name)}" type="button">审核</button>
+        </div>
+      </article>`;
+    }
 
 
-function openAtlasGallery(sceneName) {
-  const data = state.atlasWorkbench || {};
-  const records = data.records?.records || [];
-  const items = records.filter(r => r.sceneName === sceneName);
-  const imageList = [];
-  const dir = items[0]?.imageDir || '';
-  const encodedDir = dir.split('/').map(encodeURIComponent).join('/');
-  items.forEach(r => (r.imageList || []).forEach(f => imageList.push({ url: encodedDir + '/' + encodeURIComponent(f), name: f })));
-  const existing = $('#atlasGalleryModal');
-  if (existing) existing.remove();
-  const div = document.createElement('div');
-  div.id = 'atlasGalleryModal';
-  div.innerHTML = `<div class="atlas-modal-backdrop" data-action="close-gallery"></div>
-    <div class="atlas-modal atlas-gallery-modal" role="dialog" aria-modal="true">
-      <header class="atlas-modal-header"><h3>${escapeHtml(sceneName)} · 图片（${imageList.length}）</h3><button class="atlas-modal-close" data-action="close-gallery" type="button">×</button></header>
-      <div class="atlas-modal-body">
-        ${imageList.length ? `<div class="atlas-gallery-grid">${imageList.map(img => `<a href="${escapeHtml(img.url)}" target="_blank" rel="noreferrer" class="atlas-gallery-item"><img src="${escapeHtml(img.url)}" alt="${escapeHtml(img.name)}" loading="lazy"><span>${escapeHtml(img.name)}</span></a>`).join('')}</div>` : '<p class="dashboard-empty">此场景暂无图片</p>'}
-      </div>
-    </div>`;
-  document.body.appendChild(div);
-  div.querySelectorAll('[data-action="close-gallery"]').forEach(el => el.addEventListener('click', () => div.remove()));
-}
-
-function renderAtlasSceneModal(scene) {
+    function renderAtlasSceneModal(scene) {
+  const imageList = Array.isArray(scene.imageList) ? scene.imageList : [];
+  const imageDir = scene.imageDir || '';
+  const encodedDir = imageDir.split('/').map(encodeURIComponent).join('/');
+  const galleryHtml = imageList.length
+    ? `<h4>现场图片（${imageList.length}）</h4>
+       <div class="atlas-gallery-grid">${imageList.map((file) => {
+         const url = encodedDir + '/' + encodeURIComponent(file);
+         return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer" class="atlas-gallery-item"><img src="${escapeHtml(url)}" alt="${escapeHtml(file)}" loading="lazy"><span>${escapeHtml(file)}</span></a>`;
+       }).join('')}</div>`
+    : '<p class="dashboard-empty">此场景暂无图片</p>';
   return `<div class="atlas-modal-backdrop" data-action="close-modal"></div>
     <div class="atlas-modal" role="dialog" aria-modal="true">
       <header class="atlas-modal-header">
@@ -752,11 +740,11 @@ function renderAtlasSceneModal(scene) {
           <dt>审核状态</dt><dd><span class="atlas-status-badge ${atlasStatusClass(scene.status)}">${escapeHtml(scene.status || '待审核')}</span></dd>
           <dt>审核时长(H)</dt><dd>${scene.reviewHours != null && scene.reviewHours !== '' ? escapeHtml(String(scene.reviewHours)) : '-'}</dd>
         </dl>
+        ${galleryHtml}
         <h4>工位记录</h4>
         <table class="atlas-record-table"><thead><tr><th>编号</th><th>工位</th><th>工作内容</th></tr></thead><tbody>${(scene.records || []).map(record => `<tr><td>${escapeHtml(record.reportId)}</td><td>${escapeHtml(record.workstation || '-')}</td><td>${escapeHtml(record.workDetail || '-')}</td></tr>`).join('')}</tbody></table>
       </div>
       <footer class="atlas-modal-footer">
-        <button class="btn" data-action="view-images" data-scene="${escapeHtml(scene.name)}" type="button">查看图片</button>
         <span style="flex:1"></span>
         <button class="btn" data-action="close-modal" type="button">关闭</button>
         <button class="btn atlas-btn-reject" data-action="reject" data-scene="${escapeHtml(scene.name)}" type="button">驳回</button>
@@ -899,9 +887,6 @@ function bindAtlasSceneModalEvents(sceneName) {
   modal.querySelectorAll('[data-action="reject"]').forEach(btn => btn.addEventListener('click', async () => {
     await reviewAtlasScene(sceneName, 'rejected');
     closeAtlasSceneModal();
-  }));
-  modal.querySelectorAll('[data-action="view-images"]').forEach(btn => btn.addEventListener('click', () => {
-    openAtlasGallery(sceneName);
   }));
 }
 

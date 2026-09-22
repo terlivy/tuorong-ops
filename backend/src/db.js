@@ -26,6 +26,7 @@ function createDb() {
   seedAdmin(db);
   seedSystemData(db);
   seedData(db);
+  backfillAtlScenarioWorkstation(db);
   return db;
 }
 
@@ -39,6 +40,8 @@ function migrate(db) {
   db.prepare('UPDATE users SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)').run();
   ensureColumn(db, 'assets', 'assetStatus', 'TEXT');
   ensureColumn(db, 'assets', 'cooperationStage', 'TEXT');
+  ensureColumn(db, 'atl_collection_scenarios', 'workstation', 'TEXT');
+  ensureColumn(db, 'atl_collection_scenarios', 'workDetail', 'TEXT');
   const hasStatus = tableColumns(db, 'assets').includes('status');
   if (hasStatus) {
     db.prepare("UPDATE assets SET cooperationStage = COALESCE(NULLIF(cooperationStage, ''), status)").run();
@@ -159,9 +162,35 @@ function seedAtlCollectionScenarios(db) {
     atlPlatform: 'ATL',
     readiness: 'candidate',
     status: 'candidate',
-    notes: '默认全量采集场景库，可绑定到具体门店/资产',
+    workstation: sub.workstation || '',
+    workDetail: sub.workDetail || '',
+    notes: '默认全量采集场景库，工位/工作内容来自业态字典（AI 补全）。可手动覆盖。',
   }));
   seedTable(db, 'atl_collection_scenarios', rows);
+}
+
+function backfillAtlScenarioWorkstation(db) {
+  // 对已存在但 workstation / workDetail 为空的行，从 ATLAS_CATEGORIES 常量回填
+  const subcats = flattenAtlasSubcategories();
+  const byName = new Map(subcats.map(s => [s.name, s]));
+  const stmt = db.prepare(`
+    UPDATE atl_collection_scenarios
+    SET workstation = COALESCE(NULLIF(workstation, ''), ?),
+        workDetail  = COALESCE(NULLIF(workDetail, ''), ?),
+        updated_at  = CURRENT_TIMESTAMP
+    WHERE sceneName = ? AND (workstation IS NULL OR workstation = '' OR workDetail IS NULL OR workDetail = '')
+  `);
+  const all = db.prepare('SELECT id, sceneName FROM atl_collection_scenarios').all();
+  let updated = 0;
+  all.forEach(row => {
+    const sub = byName.get(row.sceneName);
+    if (!sub) return;
+    const ws = sub.workstation || '';
+    const wd = sub.workDetail || '';
+    const r = stmt.run(ws, wd, row.sceneName);
+    if (r.changes > 0) updated += 1;
+  });
+  return updated;
 }
 
 function seedTable(db, table, rows) {

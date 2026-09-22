@@ -6,8 +6,14 @@ github_token.txt
 tuorong_server
 tuorong_server.pub
 
-data/
-backend/data/
+# data/ 下大多数内容不入版本控制（图像原始素材、bak 备份、SQLite 临时文件）
+# 但 atlas_category.xlsx（业态字典）和 ops-platform.db（业务主库）显式纳入版本控制。
+data/atlas/images/
+data/atlas/*.bak.*.xlsx
+data/atlas/atlas_report*.xlsx
+data/ops-platform.db-journal
+data/ops-platform.db-wal
+data/ops-platform.db-shm
 
 *.log
 server.log
